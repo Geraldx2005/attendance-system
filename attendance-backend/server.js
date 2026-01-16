@@ -1,40 +1,127 @@
 import express from "express";
 import cors from "cors";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { parse } from "csv-parse/sync";
+import db from "./db.js";
 
 const app = express();
 app.use(cors());
 
-const CSV_PATH = "./data/attendance.csv";// change later
+/* ---------------------------------------
+   PATH SETUP (ESM SAFE)
+--------------------------------------- */
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
+const CSV_PATH = path.join(__dirname, "data", "attendance.csv");
+
+/* ---------------------------------------
+   CSV READER (HARDENED)
+--------------------------------------- */
 function readCSV() {
-  const file = fs.readFileSync(CSV_PATH);
-  return parse(file, {
-    columns: true,
-    skip_empty_lines: true,
-  });
+  if (!fs.existsSync(CSV_PATH)) {
+    console.warn("⚠️ CSV not found, skipping read");
+    return [];
+  }
+
+  try {
+    const file = fs.readFileSync(CSV_PATH);
+    return parse(file, {
+      columns: true,
+      skip_empty_lines: true,
+      relax_column_count: true,
+    });
+  } catch (err) {
+    console.error("❌ Failed to read CSV:", err.message);
+    return [];
+  }
 }
 
 /* ---------------------------------------
-   RAW LOGS API
+   CSV → SQLITE INGEST (IDEMPOTENT)
+--------------------------------------- */
+function ingestCSVToDB() {
+  const rows = readCSV();
+  if (!rows.length) return;
+
+  const insertEmployee = db.prepare(`
+    INSERT OR IGNORE INTO employees (id, name)
+    VALUES (?, ?)
+  `);
+
+  const insertLog = db.prepare(`
+    INSERT OR IGNORE INTO attendance_logs
+    (employee_id, date, time, type, source)
+    VALUES (?, ?, ?, ?, 'Biometric')
+  `);
+
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      if (!r.UserID) continue;
+
+      insertEmployee.run(r.UserID, r.EmployeeName);
+
+      if (r.Date && r.Time && r.Status) {
+        insertLog.run(
+          r.UserID,
+          r.Date,
+          r.Time.slice(0, 5),
+          r.Status
+        );
+      }
+    }
+  });
+
+  tx();
+}
+
+/* ---------------------------------------
+   CSV FILE WATCHER (DEBOUNCED)
+--------------------------------------- */
+let ingestTimeout = null;
+
+if (fs.existsSync(CSV_PATH)) {
+  fs.watch(CSV_PATH, { persistent: true }, (eventType) => {
+    if (eventType !== "change") return;
+
+    if (ingestTimeout) clearTimeout(ingestTimeout);
+
+    ingestTimeout = setTimeout(() => {
+      console.log("📄 CSV changed → re-ingesting");
+      ingestCSVToDB();
+    }, 300);
+  });
+}
+
+/* 👉 INGEST ON STARTUP */
+ingestCSVToDB();
+
+/* ---------------------------------------
+   LOGS API (SQLITE ✅)
 --------------------------------------- */
 app.get("/api/logs/:employeeId", (req, res) => {
-  const rows = readCSV();
-  const logs = rows
-    .filter(r => String(r.UserID) === req.params.employeeId)
-    .map(r => ({
-      date: r.Date,
-      time: r.Time.slice(0, 5),
-      type: r.Status,
-      source: "Biometric",
-    }));
+  const employeeId = req.params.employeeId;
+
+  const logs = db
+    .prepare(`
+      SELECT
+        date,
+        time,
+        type,
+        source
+      FROM attendance_logs
+      WHERE employee_id = ?
+      ORDER BY date, time
+    `)
+    .all(employeeId);
 
   res.json(logs);
 });
 
 /* ---------------------------------------
-   ATTENDANCE SUMMARY API
+   ATTENDANCE SUMMARY API (STILL CSV)
 --------------------------------------- */
 app.get("/api/attendance/:employeeId", (req, res) => {
   const rows = readCSV();
@@ -72,26 +159,19 @@ app.get("/api/attendance/:employeeId", (req, res) => {
 });
 
 /* ---------------------------------------
-   EMPLOYEES LIST (FROM CSV)
+   EMPLOYEES API (SQLITE ✅)
 --------------------------------------- */
 app.get("/api/employees", (req, res) => {
-  const rows = readCSV();
+  const employees = db
+    .prepare("SELECT id AS employeeId, name FROM employees")
+    .all();
 
-  const map = new Map();
-
-  rows.forEach((r) => {
-    if (!map.has(r.UserID)) {
-      map.set(r.UserID, {
-        employeeId: r.UserID,
-        name: r.EmployeeName,
-      });
-    }
-  });
-
-  res.json([...map.values()]);
+  res.json(employees);
 });
 
-
+/* ---------------------------------------
+   START SERVER
+--------------------------------------- */
 app.listen(4000, () =>
   console.log("✅ Backend running on http://localhost:4000")
 );

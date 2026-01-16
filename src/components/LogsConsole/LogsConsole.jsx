@@ -39,22 +39,33 @@ export default function LogsConsole({ employee }) {
   useEffect(() => {
     if (!employee) return;
 
-    fetch(`http://localhost:4000/api/logs/${employee.employeeId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        const formatted = data.map((l, i) => ({
-          id: i + 1,
-          date: l.date,       // YYYY-MM-DD
-          time: l.time,       // HH:mm
-          type: l.type,       // IN / OUT
-          source: l.source,
-          dateKey: getDateKey(l.date),
-        }));
+    const loadLogs = () => {
+      fetch(`http://localhost:4000/api/logs/${employee.employeeId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          const formatted = data.map((l, i) => ({
+            id: i + 1,
+            date: l.date,       // YYYY-MM-DD
+            time: l.time,       // HH:mm
+            type: l.type,       // IN / OUT
+            source: l.source,
+            dateKey: getDateKey(l.date),
+          }));
 
-        setLogs(formatted);
-      })
-      .catch(console.error);
+          setLogs(formatted);
+        })
+        .catch(console.error);
+    };
+
+    loadLogs(); // initial fetch
+
+    const interval = setInterval(() => {
+      loadLogs(); // auto update
+    }, 2000); // 🔥 every 2 seconds
+
+    return () => clearInterval(interval);
   }, [employee]);
+
 
   /* ---------------------------------------
      FILTER BY DATE

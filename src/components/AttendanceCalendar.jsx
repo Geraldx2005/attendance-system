@@ -99,8 +99,8 @@ export default function AttendanceCalendar({ employee }) {
               d.status === "Present"
                 ? "#2e7d32"
                 : d.status === "Half Day"
-                ? "#b7791f"
-                : "#8b1d1d",
+                  ? "#b7791f"
+                  : "#8b1d1d",
             borderColor: "transparent",
           }))
         );
@@ -127,8 +127,17 @@ export default function AttendanceCalendar({ employee }) {
      INITIAL LOAD
   --------------------------------------- */
   useEffect(() => {
-    if (employee) loadMonth();
+    if (!employee) return;
+
+    setEvents([]); // clear old employee data immediately
+
+    if (currentView === "timeGridDay" && currentDate) {
+      loadDay(currentDate);
+    } else {
+      loadMonth();
+    }
   }, [employee]);
+
 
   /* ---------------------------------------
      AUTO FETCH

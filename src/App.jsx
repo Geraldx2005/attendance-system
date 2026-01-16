@@ -25,20 +25,34 @@ function App() {
   const [employees, setEmployees] = useState([]);
   const [filteredEmployees, setFilteredEmployees] = useState([]);
 
+  const [searchQuery, setSearchQuery] = useState("");
+
   const [theme, setTheme] = useState("dark");
+
+  const fetchEmployees = () => {
+    fetch("http://localhost:4000/api/employees")
+      .then(res => res.json())
+      .then(data => {
+        setEmployees(data);
+
+        if (!searchQuery) {
+          setFilteredEmployees(data);
+        }
+      });
+  };
 
   /* ---------------------------------------
      LOAD EMPLOYEES FROM CSV
   --------------------------------------- */
   useEffect(() => {
-    fetch("http://localhost:4000/api/employees")
-      .then((res) => res.json())
-      .then((data) => {
-        setEmployees(data);
-        setFilteredEmployees(data);
-      })
-      .catch(console.error);
-  }, []);
+    fetchEmployees();
+
+    const interval = setInterval(() => {
+      fetchEmployees();
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [searchQuery]);
 
   /* ---------------------------------------
      THEME
@@ -53,21 +67,23 @@ function App() {
      SEARCH
   --------------------------------------- */
   const handleSearch = (query) => {
+    setSearchQuery(query);
+
     if (!query) {
       setFilteredEmployees(employees);
       return;
     }
 
     const q = query.toLowerCase();
-
     setFilteredEmployees(
       employees.filter(
-        (emp) =>
+        emp =>
           emp.name.toLowerCase().includes(q) ||
           emp.employeeId.toLowerCase().includes(q)
       )
     );
   };
+
 
   return (
     <main className="w-full h-screen flex bg-nero-900 text-nero-300 select-none">
