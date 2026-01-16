@@ -1,20 +1,22 @@
 @import "tailwindcss";
 
-/* -----------------------------
+/* =========================================================
    GLOBAL RESET
------------------------------ */
+========================================================= */
 * {
   box-sizing: border-box;
   font-family: "Poppins", sans-serif;
 }
 
-/* -----------------------------
-   THEME VARIABLES
------------------------------ */
+
+/* =========================================================
+   THEME VARIABLES (NERO)
+========================================================= */
 @theme {
-  --color-nero-50:  #ffffff;
+  --color-nero-50: #ffffff;
   --color-nero-100: #f3f3f3;
   --color-nero-300: #d1d1d1;
+  --color-nero-350: #1b1b1b;
   --color-nero-400: #b4b4b4;
   --color-nero-450: #989898;
   --color-nero-600: #5d5d5d;
@@ -24,9 +26,29 @@
   --color-nero-900: #1b1b1b;
 }
 
-/* -----------------------------
-   SCROLLBAR UTILITIES
------------------------------ */
+[data-theme="light"] {
+  /* Core surfaces */
+  --color-nero-900: #d2d2d2;  /* app background */
+  --color-nero-800: #e2e2e2;  /* panels / cards */
+  --color-nero-750: #a8a8a8;  /* borders / dividers */
+  --color-nero-700: #ababab;  /* headers / toolbars */
+
+  /* Text (improved contrast) */
+  --color-nero-600: #1f1f1f;  /* primary text (strong) */
+  --color-nero-450: #2f2f2f;  /* secondary text */
+  --color-nero-400: #3f3f3f;  /* muted labels */
+  --color-nero-350: #5a5a5a;  /* faint labels */
+  --color-nero-300: #666666;  /* metadata */
+
+  /* Interaction */
+  --color-nero-100: #ededed;  
+  --color-nero-50:  #f4f4f4;
+}
+
+
+/* =========================================================
+   SCROLLBAR UTILITIES (KEEP)
+========================================================= */
 @layer utilities {
   .minimal-scrollbar::-webkit-scrollbar {
     width: 6px;
@@ -37,173 +59,307 @@
   }
 
   .minimal-scrollbar::-webkit-scrollbar-thumb {
-    background: #2b2b2b;
-    border-radius: 8px;
+    background: var(--color-nero-600);
+    border-radius: 6px;
   }
 
   .minimal-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: #2b2b2b transparent;
+    scrollbar-color: var(--color-nero-600) transparent;
   }
 
   .minimal-scrollbar::-webkit-scrollbar-button {
     display: none;
   }
-
-  .no-spinner::-webkit-inner-spin-button,
-  .no-spinner::-webkit-outer-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-
-  .no-spinner {
-    -moz-appearance: textfield;
-  }
 }
 
 /* =========================================================
-   REACT BIG CALENDAR – PERFECT GRID (NO DRIFT)
+   FULLCALENDAR – BASE
 ========================================================= */
-
-/* 1️⃣ Remove ALL native borders */
-.rbc-month-view,
-.rbc-time-view,
-.rbc-header,
-.rbc-day-bg,
-.rbc-month-row,
-.rbc-time-header-content,
-.rbc-row,
-.rbc-timeslot-group,
-.rbc-time-content > * {
-  border: none !important;
+.fc {
+  background: var(--color-nero-900);
+  color: var(--color-nero-300);
+  font-size: 12px;
+  --fc-scrollbar-width: 0px;
 }
 
-/* 2️⃣ Header text */
-.rbc-header {
+/* =========================================================
+   HEADER / TOOLBAR
+========================================================= */
+.fc-header-toolbar {
+  margin-bottom: 0 !important;
+}
+
+.fc-toolbar {
+  padding: 6px 10px;
+  background: var(--color-nero-700);
+  border-bottom: 1px solid var(--color-nero-750);
+}
+
+.fc-toolbar-title {
+  font-size: 13px;
   font-weight: 500;
 }
 
-/* 3️⃣ Horizontal line under day names */
-.rbc-month-row {
-  box-shadow: inset 0 1px 0 #5d5d5d;
-}
-
-/* 4️⃣ Horizontal lines between weeks */
-.rbc-month-row + .rbc-month-row {
-  box-shadow: inset 0 1px 0 #5d5d5d;
-}
-
 /* =========================================================
-   🔥 FINAL FIX: SINGLE GRID BACKGROUND (NO MISALIGNMENT)
+   CAPSULE BUTTON GROUPS
 ========================================================= */
-
-/* Month body grid (7 perfect columns) */
-.rbc-month-view {
-  background-image: linear-gradient(
-    to right,
-    #5d5d5d 1px,
-    transparent 1px
-  );
-  background-size: calc(100% / 7) 100%;
-  background-position: -1px 0;
+.fc .fc-button-group {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-/* Header grid (same math as body) */
-.rbc-time-header,
-.rbc-row.rbc-month-header {
-  background-image: linear-gradient(
-    to right,
-    #5d5d5d 1px,
-    transparent 1px
-  );
-  background-size: calc(100% / 7) 100%;
-  background-position: -1px 0;
-}
-
-/* 5️⃣ Week / Day view horizontal lines */
-.rbc-timeslot-group {
-  box-shadow: inset 0 -1px 0 #5d5d5d;
-}
-
-/* 6️⃣ Clean background */
-.rbc-calendar {
-  background: transparent;
-}
-
-/* ================================
-   REMOVE OFF (OUTSIDE) DAYS
-================================ */
-
-/* Hide previous / next month dates */
-.rbc-off-range {
-  visibility: hidden;
-}
-
-/* Remove background so grid stays clean */
-.rbc-off-range-bg {
+.fc .fc-button {
   background: transparent !important;
+  border: none !important;
+  color: #9ca3af !important;
+  box-shadow: none !important;
+  font-weight: 500;
+  letter-spacing: 0.15px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-
-/* ================================
-   TODAY ACTIVE DAY (BLUE)
-================================ */
-
-/* Month / Week / Day view */
-.rbc-today {
-  background-color: rgba(37, 99, 235, 0.15) !important; /* soft blue */
+/* LEFT – Month / Day */
+.fc-toolbar-chunk:first-child .fc-button {
+  font-size: 13px !important;
+  padding: 6px 15px !important;
 }
 
-/* Optional: slightly stronger on hover */
-.rbc-today:hover {
-  background-color: rgba(37, 99, 235, 0.22) !important;
+.fc-toolbar-chunk:first-child .fc-button:hover {
+  background: #1c1c1c !important;
+  color: #e5e7eb !important;
 }
 
-/* =====================================
-   REMOVE TIME HEADER GUTTER IN DAY VIEW
-===================================== */
-
-/* Kill the empty gutter cell in header */
-.rbc-day-view .rbc-time-header-gutter {
-  display: none !important;
+.fc-toolbar-chunk:first-child .fc-button.fc-button-active {
+  background: #222222 !important;
+  color: #ffffff !important;
 }
 
-/* Remove the left offset it creates */
-.rbc-day-view .rbc-time-header-content {
-  margin-left: 0 !important;
+/* RIGHT – Prev / Today / Next */
+.fc-toolbar-chunk:last-child .fc-button {
+  font-size: 12px !important;
+  padding: 5px 13px !important;
 }
 
-/* Also remove body gutter for perfect alignment */
-.rbc-day-view .rbc-time-gutter {
-  display: none !important;
+/* subtle hover for arrows only */
+.fc-toolbar-chunk:last-child .fc-prev-button:hover,
+.fc-toolbar-chunk:last-child .fc-next-button:hover {
+  background: transparent !important;
+  color: #ffffff !important;
 }
 
-/* Expand content to full width */
-.rbc-day-view .rbc-time-content {
-  margin-left: 0 !important;
+/* Today button hover */
+.fc-toolbar-chunk:last-child .fc-today-button:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #e5e7eb !important;
 }
 
 /* =========================================================
-   🚀 DAY VIEW – REMOVE EXTRA HEADER SPACE COMPLETELY
+   REMOVE FOCUS / CLICK RINGS
 ========================================================= */
+.fc .fc-button:focus,
+.fc .fc-button:active,
+.fc .fc-button:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
 
-/* Kill the entire top header row in day view */
-.rbc-day-view .rbc-time-header {
-  display: none !important;
-  height: 0 !important;
-  min-height: 0 !important;
+/* =========================================================
+   GRID / BORDERS
+========================================================= */
+.fc-theme-standard .fc-scrollgrid {
   border: none !important;
 }
 
-/* Ensure content snaps to top */
-.rbc-day-view .rbc-time-content {
-  margin-top: 0 !important;
+.fc-theme-standard th,
+.fc-theme-standard td {
+  border-color: var(--color-nero-750) !important;
+}
+
+.fc-scrollgrid-section-header td {
   border-top: none !important;
 }
 
-/* Safety: remove any all-day row if rendered */
-.rbc-day-view .rbc-allday-cell,
-.rbc-day-view .rbc-allday-events {
-  display: none !important;
-  height: 0 !important;
+.fc-scrollgrid-section-body td {
+  border-left: none !important;
+}
+
+/* =========================================================
+   DAY CELLS
+========================================================= */
+.fc-daygrid-day-number {
+  color: var(--color-nero-400);
+  font-size: 11px;
+}
+
+/* TODAY – blue highlight */
+.fc-day-today {
+  background: rgba(59, 130, 246, 0.12) !important;
+  box-shadow: inset 0 0 0 1px #3b82f6;
+}
+
+.fc-day-today .fc-daygrid-day-number {
+  color: #3b82f6 !important;
+  font-weight: 600;
+}
+
+/* Prev / Next month → look like normal empty cells */
+.fc-day-other {
+  background: transparent !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+.fc-day-other .fc-daygrid-day-number {
+  color: var(--color-nero-400) !important;
+}
+
+/* EVENTS */
+.fc-event {
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+/* =========================================================
+   DAY VIEW – TIME AXIS
+========================================================= */
+.fc-timegrid-axis {
+  width: 36px !important;
+}
+
+.fc-timegrid-slot-label {
+  font-size: 10px;
+  color: var(--color-nero-450);
+}
+
+/* =========================================================
+   DAY VIEW – SCROLLBAR (MINIMAL)
+========================================================= */
+.fc-timeGridDay-view .fc-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: #2b2b2b transparent;
+}
+
+.fc-timeGridDay-view .fc-scroller::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fc-timeGridDay-view .fc-scroller::-webkit-scrollbar-thumb {
+  background: #2b2b2b;
+  border-radius: 8px;
+}
+
+.fc-timeGridDay-view .fc-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fc-timeGridDay-view .fc-scroller::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* ===== Disable TODAY blue highlight in DAY view only ===== */
+.fc-timeGridDay-view .fc-day-today {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fc-timeGridDay-view .fc-day-today .fc-daygrid-day-number {
+  color: var(--color-nero-400) !important;
+  font-weight: 500;
+}
+
+/* ===== Make empty (hidden-date) cells use same bg as normal cells ===== */
+
+/* ensure base background is consistent */
+.fc-daygrid-day,
+.fc-daygrid-day-frame,
+.fc-daygrid-day-bg {
+  background: transparent !important;
+}
+
+/* when date number is hidden (empty cells) */
+.fc-daygrid-day-top[style*="visibility: hidden"] {
+  visibility: hidden;
+}
+
+/* force empty cells to inherit normal cell bg */
+.fc-daygrid-day.fc-day-other,
+.fc-daygrid-day.fc-day-other .fc-daygrid-day-frame,
+.fc-daygrid-day.fc-day-other .fc-daygrid-day-bg {
+  background: transparent !important;
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+/* ensure no lighter tint sneaks in */
+.fc-theme-standard .fc-day-other {
+  background-color: transparent !important;
+}
+
+/* =========================================================
+   FULLCALENDAR – NOW INDICATOR (KILL RED LINE)
+========================================================= */
+
+/* main now-indicator line */
+/* .fc .fc-timegrid-now-indicator-line,
+.fc .fc-timegrid-now-indicator-line::before {
+  background-color: #00ff6a !important;
+  border-color: #00ff6a !important;
+} */
+
+/* sometimes FC uses ::after instead */
+/* .fc .fc-timegrid-now-indicator-line::after {
+  background-color: #00ff6a !important;
+} */
+
+/* arrow */
+/* .fc .fc-timegrid-now-indicator-arrow {
+  border-left-color: #00ff6a !important;
+} */
+
+/* DO NOT let month rows expand */
+.fc-daygrid-day-frame {
+  min-height: 100% !important;
+}
+
+.fc-daygrid-day-events {
+  overflow: hidden !important;
+}
+
+/* Compact event */
+.fc-daygrid-event {
+  padding: 4px 6px !important;
+  border-radius: 6px;
+  white-space: normal;
+  overflow: hidden;
+}
+
+.fc-timegrid-event.day-log-event .fc-event-main {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 10px;
+}
+
+.fc-timegrid-event.day-log-event .fc-event-title {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Remove border from day view log events only */
+.fc-timegrid-event.day-log-event {
+  border: none !important;
+}
+
+.fc-timegrid-event.day-log-event {
+  box-shadow: none !important;
+}
+
+/* Add slight top spacing to text in DAY view logs */
+.fc-timegrid-event.day-log-event .fc-event-main > div {
+  margin-top: 3px;   /* adjust: 2px–4px feels best */
 }

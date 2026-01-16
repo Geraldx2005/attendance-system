@@ -1,55 +1,57 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import SearchBar from "./components/SearchBar";
 import AttendanceCalendar from "./components/AttendanceCalendar";
+import LogsConsole from "./components/LogsConsole/LogsConsole";
+import FairtechDark from "./assets/Fairtech-dark.svg";
+import FairtechLight from "./assets/Fairtech-light.svg";
 
 // Icons
-import { IoCalendarNumberSharp, IoBook, IoPersonSharp } from "react-icons/io5";
+import {
+  IoCalendarNumberSharp,
+  IoBook,
+  IoPersonSharp,
+  IoMoon,
+  IoSunny,
+} from "react-icons/io5";
 import { LuSearchX } from "react-icons/lu";
 
-
 function App() {
-  // State
+  /* ---------------------------------------
+     STATE
+  --------------------------------------- */
   const [activeView, setActiveView] = useState("ATTENDANCE");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
 
-  // MASTER DATA
-  const [employees] = useState([
-    { employeeId: "EMP001", name: "John Doe" },
-    { employeeId: "EMP002", name: "Jane Smith" },
-    { employeeId: "EMP003", name: "Alex Johnson" },
-    { employeeId: "EMP004", name: "Michael Brown" },
-    { employeeId: "EMP005", name: "Emily Davis" },
-    { employeeId: "EMP006", name: "Daniel Wilson" },
-    { employeeId: "EMP007", name: "Sophia Martinez" },
-    { employeeId: "EMP008", name: "Chris Anderson" },
-    { employeeId: "EMP009", name: "Olivia Taylor" },
-    { employeeId: "EMP010", name: "Matthew Thomas" },
-    { employeeId: "EMP011", name: "Ava Moore" },
-    { employeeId: "EMP012", name: "Ryan Jackson" },
-    { employeeId: "EMP013", name: "Isabella White" },
-    { employeeId: "EMP014", name: "David Harris" },
-    { employeeId: "EMP015", name: "Mia Martin" },
-    { employeeId: "EMP016", name: "Andrew Thompson" },
-    { employeeId: "EMP017", name: "Charlotte Garcia" },
-    { employeeId: "EMP018", name: "Joshua Martinez" },
-    { employeeId: "EMP019", name: "Amelia Robinson" },
-    { employeeId: "EMP020", name: "Ethan Clark" },
-    { employeeId: "EMP021", name: "Harper Rodriguez" },
-    { employeeId: "EMP022", name: "Noah Lewis" },
-    { employeeId: "EMP023", name: "Ella Lee" },
-    { employeeId: "EMP024", name: "Benjamin Walker" },
-    { employeeId: "EMP025", name: "Grace Hall" },
-    { employeeId: "EMP026", name: "Samuel Allen" },
-    { employeeId: "EMP027", name: "Lily Young" },
-    { employeeId: "EMP028", name: "Nathan King" },
-    { employeeId: "EMP029", name: "Zoey Wright" },
-    { employeeId: "EMP030", name: "Lucas Scott" },
-  ]);
+  const [employees, setEmployees] = useState([]);
+  const [filteredEmployees, setFilteredEmployees] = useState([]);
 
-  // Filtered Data
-  const [filteredEmployees, setFilteredEmployees] = useState(employees);
+  const [theme, setTheme] = useState("dark");
 
-  // Search
+  /* ---------------------------------------
+     LOAD EMPLOYEES FROM CSV
+  --------------------------------------- */
+  useEffect(() => {
+    fetch("http://localhost:4000/api/employees")
+      .then((res) => res.json())
+      .then((data) => {
+        setEmployees(data);
+        setFilteredEmployees(data);
+      })
+      .catch(console.error);
+  }, []);
+
+  /* ---------------------------------------
+     THEME
+  --------------------------------------- */
+  const toggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    document.documentElement.setAttribute("data-theme", nextTheme);
+  };
+
+  /* ---------------------------------------
+     SEARCH
+  --------------------------------------- */
   const handleSearch = (query) => {
     if (!query) {
       setFilteredEmployees(employees);
@@ -69,52 +71,64 @@ function App() {
 
   return (
     <main className="w-full h-screen flex bg-nero-900 text-nero-300 select-none">
-      {/* SideBar */}
-      <div className="w-14 bg-nero-800 border-r-2 border-nero-900 flex flex-col items-center py-3 gap-3">
+      {/* -------------------------------- Sidebar -------------------------------- */}
+      <div className="w-14 bg-nero-800 border-r-2 border-nero-900 flex flex-col items-center gap-2 pb-3">
+        {/* Logo */}
+        <div className="w-full h-14 flex items-center justify-center border-b-2 border-nero-900 pt-1">
+          <img
+            src={theme === "dark" ? FairtechDark : FairtechLight}
+            alt="Fairtech"
+            className="h-7 object-contain transition-opacity"
+          />
+        </div>
+
         <button
           onClick={() => setActiveView("ATTENDANCE")}
-          className={`w-9 h-9 rounded-md flex items-center justify-center transition-colors
-              ${activeView === "ATTENDANCE"
+          className={`w-9 h-9 rounded-md flex items-center justify-center
+          ${activeView === "ATTENDANCE"
               ? "bg-nero-700 text-nero-300"
-              : "text-nero-400 hover:bg-nero-700"}
-          `}
-          title="Attendance"
+              : "text-nero-400 hover:bg-nero-700"}`}
         >
-          <IoCalendarNumberSharp className="text-lg" />
+          <IoCalendarNumberSharp />
         </button>
 
         <button
           onClick={() => setActiveView("LOGS")}
-          className={`w-9 h-9 rounded-md flex items-center justify-center transition-colors
-              ${activeView === "LOGS"
+          className={`w-9 h-9 rounded-md flex items-center justify-center
+          ${activeView === "LOGS"
               ? "bg-nero-700 text-nero-300"
-              : "text-nero-400 hover:bg-nero-700"}
-          `}
-          title="Employee Logs"
-          aria-label="Employee Logs"
+              : "text-nero-400 hover:bg-nero-700"}`}
         >
-          <IoBook className="text-lg" />
+          <IoBook />
+        </button>
+
+        <div className="flex-1" />
+
+        <button
+          onClick={toggleTheme}
+          className="w-9 h-9 rounded-md flex items-center justify-center
+          text-nero-400 hover:bg-nero-700"
+        >
+          {theme === "dark" ? <IoSunny /> : <IoMoon />}
         </button>
       </div>
 
-      {/* Main */}
+      {/* -------------------------------- Main -------------------------------- */}
       <div className="flex-1 flex">
-        {/* Left: Employee List */}
-        <div className="w-72 bg-nero-900 border-r-2 border-nero-900 flex flex-col">
-          {/* Search */}
-          <div className="h-14 px-3 flex items-center bg-nero-800 border-b-2 border-nero-900">
+        {/* Employee List */}
+        <div className="w-72 bg-nero-900 flex flex-col">
+          <div className="h-14 px-3 flex items-center bg-nero-800 border-b-2 border-r-2 border-nero-900">
             <SearchBar
               placeholder="Search employee (Name / ID)"
               onSearch={handleSearch}
             />
           </div>
 
-          {/* List */}
-          <div className="flex-1 overflow-auto minimal-scrollbar p-2 border-r border-r-nero-800">
+          <div className="flex-1 overflow-auto minimal-scrollbar p-2 px-3 border-r-2 border-nero-600">
             {filteredEmployees.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center text-nero-450 gap-2">
                 <LuSearchX className="text-5xl" />
-                <div className="text-md">No employee found</div>
+                <div>No employee found</div>
               </div>
             )}
 
@@ -126,12 +140,13 @@ function App() {
                 <div
                   key={emp.employeeId}
                   onClick={() => setSelectedEmployee(emp)}
-                  className={`px-3 py-2 mb-1 rounded-md cursor-pointer transition-colors
-                  ${isActive
-                      ? "bg-nero-700 text-nero-300"
-                      : "bg-nero-800 hover:bg-[#2b2b2b]"
+                  className={`px-3 py-2 mb-1 rounded-md cursor-pointer transition-colors border-2
+  ${isActive
+                      ? "bg-nero-700 text-nero-400 border-nero-400"
+                      : "bg-nero-800 border-transparent hover:bg-[#2b2b2b]"
                     }`}
                 >
+
                   <div className="text-sm font-medium">{emp.name}</div>
                   <div className="text-xs text-nero-400">
                     {emp.employeeId}
@@ -140,13 +155,10 @@ function App() {
               );
             })}
           </div>
-
         </div>
 
-        {/* Right: Content */}
+        {/* Content */}
         <div className="flex-1 bg-nero-900 overflow-hidden flex flex-col">
-
-          {/* Empty State */}
           {!selectedEmployee && (
             <div className="flex-1 flex flex-col items-center justify-center text-nero-450">
               <IoPersonSharp className="text-6xl mb-3 opacity-60" />
@@ -154,17 +166,15 @@ function App() {
                 No Employee Selected
               </div>
               <div className="text-sm text-nero-500 mt-1">
-                Select an employee from the list to view attendance or logs
+                Select an employee from the list
               </div>
             </div>
           )}
 
-          {/* Attendance View */}
           {selectedEmployee && activeView === "ATTENDANCE" && (
             <>
-              {/* Header – Employee Identity */}
               <div className="h-14 px-4 flex flex-col justify-center bg-nero-800 border-b-2 border-nero-900">
-                <div className="text-lg font-semibold text-nero-200 leading-tight">
+                <div className="text-lg font-semibold">
                   {selectedEmployee.name}
                 </div>
                 <div className="text-xs text-nero-500">
@@ -172,41 +182,29 @@ function App() {
                 </div>
               </div>
 
-              {/* Content */}
-              <div className="flex-1 overflow-hidden p-3 flex flex-col">
-                {/* Section Label */}
-                <div className="bg-nero-800 px-3 py-1 text-xs uppercase tracking-wide text-nero-500 mb-2 rounded-lg">
-                  Attendance
-                </div>
-
-                {/* Calendar */}
-                <div className="flex-1 overflow-hidden">
-                  <AttendanceCalendar employee={selectedEmployee} />
-                </div>
+              <div className="flex-1 p-3">
+                <AttendanceCalendar employee={selectedEmployee} />
               </div>
             </>
           )}
 
-          {/* Logs View */}
           {selectedEmployee && activeView === "LOGS" && (
             <>
-              <div className="h-16 px-4 flex flex-col justify-center bg-nero-800 border-b border-nero-900">
-                <div className="text-sm font-medium text-nero-300">
-                  Employee Logs
+              <div className="h-14 px-4 flex flex-col justify-center bg-nero-800 border-b-2 border-nero-900">
+                <div className="text-lg font-semibold">
+                  {selectedEmployee.name}
                 </div>
                 <div className="text-xs text-nero-500">
-                  {selectedEmployee.name} • {selectedEmployee.employeeId}
+                  Employee ID • {selectedEmployee.employeeId}
                 </div>
               </div>
 
-              <div className="flex-1 p-4 text-nero-500 text-sm">
-                {/* LOG TABLE GOES HERE */}
-                Logs will appear here
+              <div className="flex-1 p-3">
+                <LogsConsole employee={selectedEmployee} />
               </div>
             </>
           )}
         </div>
-
       </div>
     </main>
   );

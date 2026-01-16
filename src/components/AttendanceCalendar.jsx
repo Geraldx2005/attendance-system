@@ -1,147 +1,197 @@
-import { Calendar, dateFnsLocalizer } from "react-big-calendar";
-import { format, parse, startOfWeek, getDay } from "date-fns";
-import enUS from "date-fns/locale/en-US";
-import { IoArrowBackSharp, IoArrowForwardSharp  } from "react-icons/io5";
+import { useEffect, useState } from "react";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import interactionPlugin from "@fullcalendar/interaction";
 
-import "react-big-calendar/lib/css/react-big-calendar.css";
+/* ---------------------------------------
+   HELPERS
+--------------------------------------- */
+function toMinutes(time) {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
 
-// ---------------------------
-// LOCALIZER
-// ---------------------------
-const locales = {
-  "en-US": enUS,
-};
+function calcDuration(inTime, outTime) {
+  const diff = toMinutes(outTime) - toMinutes(inTime);
+  return `${Math.floor(diff / 60)}h ${diff % 60}m`;
+}
 
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek,
-  getDay,
-  locales,
-});
+/* ---------------------------------------
+   MONTH CELL RENDER
+--------------------------------------- */
+function renderAttendanceEvent(info) {
+  const { firstIn, lastOut } = info.event.extendedProps;
 
-// ---------------------------
-// CUSTOM TOOLBAR
-// ---------------------------
-function CalendarToolbar({ label, onNavigate, onView, view }) {
+  const duration =
+    firstIn && lastOut ? calcDuration(firstIn, lastOut) : null;
+
   return (
-    <div className="flex items-center justify-between px-1.5 py-1.5 bg-nero-800 border-b border-nero-600 rounded-t-2xl">
-
-      {/* LEFT: Month / Week / Day */}
-      <div className="flex items-center gap-1 rounded-md bg-nero-900/60 p-0.5">
-        {["month", "day"].map((v) => (
-          <button
-            key={v}
-            onClick={() => onView(v)}
-            className={`px-3 py-1 text-sm rounded transition-colors
-        ${view === v
-                ? "bg-nero-700 text-nero-200"
-                : "text-nero-400 hover:text-nero-300"
-              }
-      `}
-          >
-            {v}
-          </button>
-        ))}
+    <div style={{ fontSize: "11px", lineHeight: 1.2 }}>
+      {/* STATUS + DURATION */}
+      <div className="flex justify-between font-semibold">
+        <span>{info.event.title}</span>
+        {duration && <span>{duration}</span>}
       </div>
 
-
-      {/* CENTER: LABEL */}
-      <div className="text-sm font-medium text-nero-300">
-        {label}
-      </div>
-
-      {/* RIGHT: NAVIGATION */}
-<div className="flex items-center gap-1 rounded-md bg-nero-900/60 p-0.5">
-  <button
-    onClick={() => onNavigate("PREV")}
-    className="px-3 py-1 text-md rounded transition-colors bg-nero-700 text-nero-400 hover:text-nero-300"
-  >
-    <IoArrowBackSharp />
-  </button>
-
-  <button
-    onClick={() => onNavigate("TODAY")}
-    className="px-3 py-1 text-sm rounded transition-colors bg-nero-700 text-nero-400 hover:text-nero-300"
-  >
-    Today
-  </button>
-
-  <button
-    onClick={() => onNavigate("NEXT")}
-    className="px-3 py-1 text-md rounded transition-colors bg-nero-700 text-nero-400 hover:text-nero-300"
-  >
-    <IoArrowForwardSharp />
-  </button>
-</div>
-
+      {/* IN / OUT */}
+      {firstIn && lastOut && (
+        <div className="opacity-90 mt-0.5">
+          {firstIn} — {lastOut}
+        </div>
+      )}
     </div>
   );
 }
 
-// ---------------------------
-// SAMPLE ATTENDANCE DATA
-// ---------------------------
-const getAttendanceEvents = (employeeId) => {
-  if (!employeeId) return [];
+/* ---------------------------------------
+   DAY TIMELINE BUILDER
+--------------------------------------- */
+function buildDayTimelineEvents(date, logs) {
+  return logs.map((l, i) => {
+    const start = new Date(`${l.date}T${l.time}:00`);
+    const end = new Date(start);
 
-  return [
-    {
-      title: "Full Day",
-      start: new Date(2026, 0, 2),
-      end: new Date(2026, 0, 2),
-      status: "FULL",
-    },
-    {
-      title: "Half Day",
-      start: new Date(2026, 0, 5),
-      end: new Date(2026, 0, 5),
-      status: "HALF",
-    },
-    {
-      title: "Absent",
-      start: new Date(2026, 0, 8),
-      end: new Date(2026, 0, 8),
-      status: "ABSENT",
-    },
-  ];
-};
+    // 🔥 visual duration (prevents short-event issues)
+    end.setMinutes(end.getMinutes() + 30);
 
-// ---------------------------
-// MAIN COMPONENT
-// ---------------------------
+    return {
+      id: i,
+      title:
+        l.type === "IN"
+          ? `Check In · ${l.time}`
+          : `Check Out · ${l.time}`,
+      start,
+      end,
+      backgroundColor: l.type === "IN" ? "#16a34a" : "#dc2626",
+      borderColor: l.type === "IN" ? "#16a34a" : "#dc2626",
+      textColor: "#fff",
+      classNames: ["day-log-event"],
+    };
+  });
+}
+
+/* ---------------------------------------
+   COMPONENT
+--------------------------------------- */
 export default function AttendanceCalendar({ employee }) {
-  const events = getAttendanceEvents(employee?.employeeId);
+  const [events, setEvents] = useState([]);
+
+  const [currentView, setCurrentView] = useState("dayGridMonth");
+  const [currentDate, setCurrentDate] = useState(null);
+
+  /* ---------------------------------------
+     LOAD MONTH SUMMARY
+  --------------------------------------- */
+  const loadMonth = () => {
+    if (!employee) return;
+
+    fetch(`http://localhost:4000/api/attendance/${employee.employeeId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setEvents(
+          data.map((d) => ({
+            title: d.status,
+            start: d.date,
+            firstIn: d.firstIn,
+            lastOut: d.lastOut,
+            backgroundColor:
+              d.status === "Present"
+                ? "#2e7d32"
+                : d.status === "Half Day"
+                ? "#b7791f"
+                : "#8b1d1d",
+            borderColor: "transparent",
+          }))
+        );
+      })
+      .catch(console.error);
+  };
+
+  /* ---------------------------------------
+     LOAD DAY LOGS
+  --------------------------------------- */
+  const loadDay = (dateStr) => {
+    if (!employee) return;
+
+    fetch(`http://localhost:4000/api/logs/${employee.employeeId}`)
+      .then((res) => res.json())
+      .then((logs) => {
+        const dayLogs = logs.filter((l) => l.date === dateStr);
+        setEvents(buildDayTimelineEvents(dateStr, dayLogs));
+      })
+      .catch(console.error);
+  };
+
+  /* ---------------------------------------
+     INITIAL LOAD
+  --------------------------------------- */
+  useEffect(() => {
+    if (employee) loadMonth();
+  }, [employee]);
+
+  /* ---------------------------------------
+     AUTO FETCH
+  --------------------------------------- */
+  useEffect(() => {
+    if (!employee) return;
+
+    const interval = setInterval(() => {
+      if (currentView === "timeGridDay" && currentDate) {
+        loadDay(currentDate);
+      } else {
+        loadMonth();
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [employee, currentView, currentDate]);
 
   return (
-    <div className="w-full h-full bg-nero-800 rounded-lg border border-nero-600 overflow-hidden">
-      <Calendar
-        localizer={localizer}
+    <div className="h-full rounded-lg overflow-hidden border border-nero-700 bg-nero-900">
+      <FullCalendar
+        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+        initialView="dayGridMonth"
+
+        headerToolbar={{
+          left: "dayGridMonth,timeGridDay",
+          center: "title",
+          right: "prev today next",
+        }}
+
+        fixedWeekCount={false}
+        showNonCurrentDates={false}
+        dayMaxEvents={1}
+        nowIndicator={true}
+
+        /* DAY VIEW SETTINGS */
+        allDaySlot={false}
+        displayEventTime={false}
+        slotMinTime="06:00:00"
+        slotMaxTime="22:00:00"
+
+        height="100%"
         events={events}
-        startAccessor="start"
-        endAccessor="end"
-        views={["month", "day"]}
-        defaultView="month"
-        components={{ toolbar: CalendarToolbar }}
-        popup
-        selectable
-        style={{ height: "100%" }}
-        eventPropGetter={(event) => {
-          let bg = "#2563eb";
 
-          if (event.status === "FULL") bg = "#16a34a";
-          if (event.status === "HALF") bg = "#eab308";
-          if (event.status === "ABSENT") bg = "#dc2626";
+        /* Month-only custom render */
+        eventContent={(arg) =>
+          arg.view.type === "dayGridMonth"
+            ? renderAttendanceEvent(arg)
+            : true
+        }
 
-          return {
-            style: {
-              backgroundColor: bg,
-              borderRadius: "6px",
-              border: "none",
-              color: "#fff",
-              fontSize: "12px",
-            },
-          };
+        /* VIEW CHANGE HANDLER */
+        datesSet={(arg) => {
+          setCurrentView(arg.view.type);
+
+          if (arg.view.type === "timeGridDay") {
+            const date = arg.startStr.slice(0, 10);
+            setCurrentDate(date);
+            loadDay(date);
+          } else {
+            setCurrentDate(null);
+            loadMonth();
+          }
         }}
       />
     </div>
