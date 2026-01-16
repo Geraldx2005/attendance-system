@@ -40,28 +40,38 @@ export default function LogsConsole({ employee }) {
     if (!employee) return;
 
     const loadLogs = () => {
-      fetch(`http://localhost:4000/api/logs/${employee.employeeId}`)
-        .then((res) => res.json())
-        .then((data) => {
+      if (!employee) return;
+
+      const today = new Date();
+      const from = new Date(today);
+      from.setDate(today.getDate() - 1);
+
+      const fmt = d => d.toISOString().slice(0, 10);
+
+      fetch(
+        `http://localhost:4000/api/logs/${employee.employeeId}?from=${fmt(from)}&to=${fmt(today)}`
+      )
+        .then(res => res.json())
+        .then(data => {
           const formatted = data.map((l, i) => ({
             id: i + 1,
-            date: l.date,       // YYYY-MM-DD
-            time: l.time,       // HH:mm
-            type: l.type,       // IN / OUT
+            date: l.date,
+            time: l.time,
+            type: l.type,
             source: l.source,
             dateKey: getDateKey(l.date),
           }));
-
           setLogs(formatted);
         })
         .catch(console.error);
     };
 
+
     loadLogs(); // initial fetch
 
     const interval = setInterval(() => {
       loadLogs(); // auto update
-    }, 2000); // 🔥 every 2 seconds
+    }, 15000); // every 15 seconds
 
     return () => clearInterval(interval);
   }, [employee]);

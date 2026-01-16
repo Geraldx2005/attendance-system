@@ -5,11 +5,19 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// DB will be created automatically
+// DB file path
 const dbPath = path.join(__dirname, "attendance.db");
 const db = new Database(dbPath);
 
-// ---- TABLES ----
+// --------------------
+// PRAGMAS (IMPORTANT)
+// --------------------
+db.pragma("journal_mode = WAL");   // fast concurrent reads/writes
+db.pragma("foreign_keys = ON");    // enforce relations
+
+// --------------------
+// TABLES
+// --------------------
 db.exec(`
   CREATE TABLE IF NOT EXISTS employees (
     id TEXT PRIMARY KEY,
@@ -19,12 +27,27 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS attendance_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     employee_id TEXT NOT NULL,
-    date TEXT NOT NULL,
-    time TEXT NOT NULL,
+    date TEXT NOT NULL,             -- YYYY-MM-DD
+    time TEXT NOT NULL,             -- HH:mm
     type TEXT CHECK(type IN ('IN','OUT')),
     source TEXT DEFAULT 'Biometric',
-    UNIQUE(employee_id, date, time, type)
+
+    UNIQUE(employee_id, date, time, type),
+    FOREIGN KEY (employee_id)
+      REFERENCES employees(id)
+      ON DELETE CASCADE
   );
+`);
+
+// --------------------
+// INDEXES (CRITICAL FOR SCALE)
+// --------------------
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_logs_employee_date
+  ON attendance_logs(employee_id, date);
+
+  CREATE INDEX IF NOT EXISTS idx_logs_employee_date_time
+  ON attendance_logs(employee_id, date, time);
 `);
 
 export default db;

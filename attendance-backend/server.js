@@ -103,57 +103,87 @@ ingestCSVToDB();
 --------------------------------------- */
 app.get("/api/logs/:employeeId", (req, res) => {
   const employeeId = req.params.employeeId;
+  const { date, from, to } = req.query;
 
-  const logs = db
-    .prepare(`
-      SELECT
-        date,
-        time,
-        type,
-        source
+  let rows;
+
+  if (date) {
+    // ✅ single-day fetch
+    rows = db.prepare(`
+      SELECT date, time, type, source
+      FROM attendance_logs
+      WHERE employee_id = ? AND date = ?
+      ORDER BY time
+    `).all(employeeId, date);
+
+  } else if (from && to) {
+    // ✅ range fetch (logs console)
+    rows = db.prepare(`
+      SELECT date, time, type, source
+      FROM attendance_logs
+      WHERE employee_id = ?
+        AND date BETWEEN ? AND ?
+      ORDER BY date, time
+    `).all(employeeId, from, to);
+
+  } else {
+    // ❌ fallback (temporary, will remove later)
+    rows = db.prepare(`
+      SELECT date, time, type, source
       FROM attendance_logs
       WHERE employee_id = ?
       ORDER BY date, time
-    `)
-    .all(employeeId);
+    `).all(employeeId);
+  }
 
-  res.json(logs);
+  res.json(rows);
 });
 
 /* ---------------------------------------
-   ATTENDANCE SUMMARY API (STILL CSV)
+   ATTENDANCE SUMMARY API (SQLITE)
 --------------------------------------- */
 app.get("/api/attendance/:employeeId", (req, res) => {
-  const rows = readCSV();
-  const empRows = rows.filter(
-    r => String(r.UserID) === req.params.employeeId
-  );
+  const employeeId = req.params.employeeId;
+  const { month } = req.query; // optional YYYY-MM
 
-  const byDate = {};
+  let rows;
 
-  empRows.forEach(r => {
-    byDate[r.Date] ??= [];
-    byDate[r.Date].push(r);
-  });
+  if (month) {
+    // YYYY-MM → YYYY-MM-01 to YYYY-MM-31 (safe for TEXT dates)
+    const from = `${month}-01`;
+    const to = `${month}-31`;
 
-  const result = Object.entries(byDate).map(([date, logs]) => {
-    const ins = logs.filter(l => l.Status === "IN");
-    const outs = logs.filter(l => l.Status === "OUT");
+    rows = db.prepare(`
+      SELECT
+        date,
+        MIN(CASE WHEN type = 'IN'  THEN time END) AS firstIn,
+        MAX(CASE WHEN type = 'OUT' THEN time END) AS lastOut
+      FROM attendance_logs
+      WHERE employee_id = ?
+        AND date BETWEEN ? AND ?
+      GROUP BY date
+      ORDER BY date
+    `).all(employeeId, from, to);
+  } else {
+    // fallback: all dates for employee
+    rows = db.prepare(`
+      SELECT
+        date,
+        MIN(CASE WHEN type = 'IN'  THEN time END) AS firstIn,
+        MAX(CASE WHEN type = 'OUT' THEN time END) AS lastOut
+      FROM attendance_logs
+      WHERE employee_id = ?
+      GROUP BY date
+      ORDER BY date
+    `).all(employeeId);
+  }
 
-    if (!ins.length || !outs.length) {
-      return { date, status: "Half Day" };
-    }
-
-    const firstIn = ins.sort((a, b) => a.Time.localeCompare(b.Time))[0];
-    const lastOut = outs.sort((a, b) => b.Time.localeCompare(a.Time))[0];
-
-    return {
-      date,
-      status: "Present",
-      firstIn: firstIn.Time.slice(0, 5),
-      lastOut: lastOut.Time.slice(0, 5),
-    };
-  });
+  const result = rows.map(r => ({
+    date: r.date,
+    status: r.firstIn && r.lastOut ? "Present" : "Half Day",
+    firstIn: r.firstIn || null,
+    lastOut: r.lastOut || null,
+  }));
 
   res.json(result);
 });

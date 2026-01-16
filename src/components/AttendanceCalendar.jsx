@@ -83,10 +83,15 @@ export default function AttendanceCalendar({ employee }) {
   /* ---------------------------------------
      LOAD MONTH SUMMARY
   --------------------------------------- */
-  const loadMonth = () => {
+  const loadMonth = (dateStr) => {
     if (!employee) return;
 
-    fetch(`http://localhost:4000/api/attendance/${employee.employeeId}`)
+    // dateStr = YYYY-MM-DD → YYYY-MM
+    const month = dateStr.slice(0, 7);
+
+    fetch(
+      `http://localhost:4000/api/attendance/${employee.employeeId}?month=${month}`
+    )
       .then((res) => res.json())
       .then((data) => {
         setEvents(
@@ -108,20 +113,23 @@ export default function AttendanceCalendar({ employee }) {
       .catch(console.error);
   };
 
+
   /* ---------------------------------------
      LOAD DAY LOGS
   --------------------------------------- */
   const loadDay = (dateStr) => {
     if (!employee) return;
 
-    fetch(`http://localhost:4000/api/logs/${employee.employeeId}`)
-      .then((res) => res.json())
-      .then((logs) => {
-        const dayLogs = logs.filter((l) => l.date === dateStr);
-        setEvents(buildDayTimelineEvents(dateStr, dayLogs));
+    fetch(
+      `http://localhost:4000/api/logs/${employee.employeeId}?date=${dateStr}`
+    )
+      .then(res => res.json())
+      .then(logs => {
+        setEvents(buildDayTimelineEvents(dateStr, logs));
       })
       .catch(console.error);
   };
+
 
   /* ---------------------------------------
      INITIAL LOAD
@@ -134,8 +142,10 @@ export default function AttendanceCalendar({ employee }) {
     if (currentView === "timeGridDay" && currentDate) {
       loadDay(currentDate);
     } else {
-      loadMonth();
+      const today = new Date().toISOString().slice(0, 10);
+      loadMonth(today);
     }
+
   }, [employee]);
 
 
@@ -149,12 +159,14 @@ export default function AttendanceCalendar({ employee }) {
       if (currentView === "timeGridDay" && currentDate) {
         loadDay(currentDate);
       } else {
-        loadMonth();
+        const today = new Date().toISOString().slice(0, 10);
+        loadMonth(today);
       }
     }, 10000);
 
     return () => clearInterval(interval);
   }, [employee, currentView, currentDate]);
+
 
   return (
     <div className="h-full rounded-lg overflow-hidden border border-nero-700 bg-nero-900">
@@ -193,15 +205,17 @@ export default function AttendanceCalendar({ employee }) {
         datesSet={(arg) => {
           setCurrentView(arg.view.type);
 
+          const date = arg.startStr.slice(0, 10);
+
           if (arg.view.type === "timeGridDay") {
-            const date = arg.startStr.slice(0, 10);
             setCurrentDate(date);
             loadDay(date);
           } else {
             setCurrentDate(null);
-            loadMonth();
+            loadMonth(date); // ✅ pass visible month
           }
         }}
+
       />
     </div>
   );

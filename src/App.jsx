@@ -49,7 +49,7 @@ function App() {
 
     const interval = setInterval(() => {
       fetchEmployees();
-    }, 2000);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, [searchQuery]);
