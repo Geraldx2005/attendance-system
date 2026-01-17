@@ -10,9 +10,9 @@ export default function LogsToolbar({
   dateFilter,
   setDateFilter,
   typeFilter,
-  setTypeFilter,
+  onTypeChange,
   summaryMode,
-  setSummaryMode,
+  onSummaryClick,
   duration,
 }) {
   const tabBtn =
@@ -28,8 +28,8 @@ export default function LogsToolbar({
             key={v}
             onClick={() => setDateFilter(v)}
             className={`${tabBtn} ${dateFilter === v
-                ? "bg-nero-700 text-nero-200"
-                : "text-nero-500 hover:bg-nero-800"
+              ? "bg-nero-700 text-nero-200"
+              : "text-nero-500 hover:bg-nero-800"
               }`}
           >
             <IoCalendarOutline className="text-sm" />
@@ -44,10 +44,10 @@ export default function LogsToolbar({
       {/* Type Filter */}
       <div className="flex items-center gap-1 bg-nero-900/80 p-1 rounded-xl">
         <button
-          onClick={() => setTypeFilter("all")}
+          onClick={() => onTypeChange("all")}
           className={`${tabBtn} ${typeFilter === "all"
-              ? "bg-nero-700 text-nero-200"
-              : "text-nero-500 hover:bg-nero-800"
+            ? "bg-nero-700 text-nero-200"
+            : "text-nero-500 hover:bg-nero-800"
             }`}
         >
           <IoFunnelOutline className="text-sm" />
@@ -55,10 +55,10 @@ export default function LogsToolbar({
         </button>
 
         <button
-          onClick={() => setTypeFilter("in")}
+          onClick={() => onTypeChange("in")}
           className={`${tabBtn} ${typeFilter === "in"
-              ? "bg-nero-700 text-emerald-400"
-              : "text-nero-500 hover:bg-nero-800"
+            ? "bg-nero-700 text-emerald-400"
+            : "text-nero-500 hover:bg-nero-800"
             }`}
         >
           <IoLogInOutline className="text-sm" />
@@ -66,15 +66,16 @@ export default function LogsToolbar({
         </button>
 
         <button
-          onClick={() => setTypeFilter("out")}
+          onClick={() => onTypeChange("out")}
           className={`${tabBtn} ${typeFilter === "out"
-              ? "bg-nero-700 text-rose-400"
-              : "text-nero-500 hover:bg-nero-800"
+            ? "bg-nero-700 text-red-400"
+            : "text-nero-500 hover:bg-nero-800"
             }`}
         >
           <IoLogOutOutline className="text-sm" />
           Out
         </button>
+
       </div>
 
       {/* Divider */}
@@ -83,9 +84,9 @@ export default function LogsToolbar({
       {/* Day Summary */}
       <div className="flex items-center bg-nero-900/80 p-1 rounded-xl">
         <button
-          onClick={() => setSummaryMode(!summaryMode)}
+          onClick={onSummaryClick}
           className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1 transition-colors
-      ${summaryMode
+    ${summaryMode
               ? "bg-nero-700 text-nero-200"
               : "text-nero-500 hover:bg-nero-800"
             }`}

@@ -3,6 +3,7 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
+import { to12Hour } from "../utils/time";
 
 /* ---------------------------------------
    HELPERS
@@ -37,7 +38,7 @@ function renderAttendanceEvent(info) {
       {/* IN / OUT */}
       {firstIn && lastOut && (
         <div className="opacity-90 mt-0.5">
-          {firstIn} — {lastOut}
+          {to12Hour(firstIn)} — {to12Hour(lastOut)}
         </div>
       )}
     </div>
@@ -58,9 +59,9 @@ function buildDayTimelineEvents(date, logs) {
     return {
       id: i,
       title:
-        l.type === "IN"
-          ? `Check In · ${l.time}`
-          : `Check Out · ${l.time}`,
+  l.type === "IN"
+    ? `Check In · ${to12Hour(l.time)}`
+    : `Check Out · ${to12Hour(l.time)}`,
       start,
       end,
       backgroundColor: l.type === "IN" ? "#16a34a" : "#dc2626",
@@ -79,6 +80,8 @@ export default function AttendanceCalendar({ employee }) {
 
   const [currentView, setCurrentView] = useState("dayGridMonth");
   const [currentDate, setCurrentDate] = useState(null);
+
+  const [calendarKey, setCalendarKey] = useState(0);
 
   /* ---------------------------------------
      LOAD MONTH SUMMARY
@@ -141,6 +144,9 @@ export default function AttendanceCalendar({ employee }) {
 
     if (currentView === "timeGridDay" && currentDate) {
       loadDay(currentDate);
+
+      // 🔥 force FullCalendar to re-render day timeline
+      setCalendarKey(k => k + 1);
     } else {
       const today = new Date().toISOString().slice(0, 10);
       loadMonth(today);
@@ -152,25 +158,35 @@ export default function AttendanceCalendar({ employee }) {
   /* ---------------------------------------
      AUTO FETCH
   --------------------------------------- */
+  /* ---------------------------------------
+     IPC INVALIDATION
+  --------------------------------------- */
   useEffect(() => {
-    if (!employee) return;
+    if (!window.ipc || !employee) return;
+    console.log("IPC invalidation received");
 
-    const interval = setInterval(() => {
+    const handler = ({ employeeId }) => {
+      if (employeeId && employee.employeeId !== employeeId) return;
+
       if (currentView === "timeGridDay" && currentDate) {
         loadDay(currentDate);
       } else {
         const today = new Date().toISOString().slice(0, 10);
         loadMonth(today);
       }
-    }, 10000);
+    };
 
-    return () => clearInterval(interval);
+    window.ipc.onAttendanceInvalidated(handler);
+
+    return () => {
+      window.ipc.offAttendanceInvalidated(handler);
+    };
   }, [employee, currentView, currentDate]);
 
 
   return (
     <div className="h-full rounded-lg overflow-hidden border border-nero-700 bg-nero-900">
-      <FullCalendar
+      <FullCalendar key={calendarKey}
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
         initialView="dayGridMonth"
 

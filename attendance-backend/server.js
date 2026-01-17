@@ -39,6 +39,22 @@ function readCSV() {
   }
 }
 
+function notifyChange(employeeId = null, date = null) {
+  if (process.send) {
+    process.send({
+      type: "attendance:invalidated",
+      employeeId,
+      date,
+    });
+  }
+}
+
+function timeToMinutes(time) {
+  if (!time) return null;
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
 /* ---------------------------------------
    CSV → SQLITE INGEST (IDEMPOTENT)
 --------------------------------------- */
@@ -64,17 +80,15 @@ function ingestCSVToDB() {
       insertEmployee.run(r.UserID, r.EmployeeName);
 
       if (r.Date && r.Time && r.Status) {
-        insertLog.run(
-          r.UserID,
-          r.Date,
-          r.Time.slice(0, 5),
-          r.Status
-        );
+        insertLog.run(r.UserID, r.Date, r.Time.slice(0, 5), r.Status);
       }
     }
   });
 
   tx();
+
+  // notify Electron that attendance data changed
+  notifyChange();
 }
 
 /* ---------------------------------------
@@ -109,31 +123,41 @@ app.get("/api/logs/:employeeId", (req, res) => {
 
   if (date) {
     // ✅ single-day fetch
-    rows = db.prepare(`
+    rows = db
+      .prepare(
+        `
       SELECT date, time, type, source
       FROM attendance_logs
       WHERE employee_id = ? AND date = ?
       ORDER BY time
-    `).all(employeeId, date);
-
+    `
+      )
+      .all(employeeId, date);
   } else if (from && to) {
     // ✅ range fetch (logs console)
-    rows = db.prepare(`
+    rows = db
+      .prepare(
+        `
       SELECT date, time, type, source
       FROM attendance_logs
       WHERE employee_id = ?
         AND date BETWEEN ? AND ?
       ORDER BY date, time
-    `).all(employeeId, from, to);
-
+    `
+      )
+      .all(employeeId, from, to);
   } else {
     // ❌ fallback (temporary, will remove later)
-    rows = db.prepare(`
+    rows = db
+      .prepare(
+        `
       SELECT date, time, type, source
       FROM attendance_logs
       WHERE employee_id = ?
       ORDER BY date, time
-    `).all(employeeId);
+    `
+      )
+      .all(employeeId);
   }
 
   res.json(rows);
@@ -153,7 +177,9 @@ app.get("/api/attendance/:employeeId", (req, res) => {
     const from = `${month}-01`;
     const to = `${month}-31`;
 
-    rows = db.prepare(`
+    rows = db
+      .prepare(
+        `
       SELECT
         date,
         MIN(CASE WHEN type = 'IN'  THEN time END) AS firstIn,
@@ -163,10 +189,14 @@ app.get("/api/attendance/:employeeId", (req, res) => {
         AND date BETWEEN ? AND ?
       GROUP BY date
       ORDER BY date
-    `).all(employeeId, from, to);
+    `
+      )
+      .all(employeeId, from, to);
   } else {
     // fallback: all dates for employee
-    rows = db.prepare(`
+    rows = db
+      .prepare(
+        `
       SELECT
         date,
         MIN(CASE WHEN type = 'IN'  THEN time END) AS firstIn,
@@ -175,15 +205,40 @@ app.get("/api/attendance/:employeeId", (req, res) => {
       WHERE employee_id = ?
       GROUP BY date
       ORDER BY date
-    `).all(employeeId);
+    `
+      )
+      .all(employeeId);
   }
 
-  const result = rows.map(r => ({
-    date: r.date,
-    status: r.firstIn && r.lastOut ? "Present" : "Half Day",
-    firstIn: r.firstIn || null,
-    lastOut: r.lastOut || null,
-  }));
+  const result = rows.map((r) => {
+    let status = "Absent";
+    let workedMinutes = 0;
+
+    if (r.firstIn && r.lastOut) {
+      const inMin = timeToMinutes(r.firstIn);
+      const outMin = timeToMinutes(r.lastOut);
+
+      if (inMin !== null && outMin !== null && outMin > inMin) {
+        workedMinutes = outMin - inMin;
+
+        if (workedMinutes >= 8 * 60) {
+          status = "Present"; // Full Day
+        } else if (workedMinutes >= 5 * 60) {
+          status = "Half Day";
+        } else {
+          status = "Absent";
+        }
+      }
+    }
+
+    return {
+      date: r.date,
+      status,
+      firstIn: r.firstIn || null,
+      lastOut: r.lastOut || null,
+      workedMinutes, // 🔥 optional (future use)
+    };
+  });
 
   res.json(result);
 });
@@ -192,9 +247,7 @@ app.get("/api/attendance/:employeeId", (req, res) => {
    EMPLOYEES API (SQLITE ✅)
 --------------------------------------- */
 app.get("/api/employees", (req, res) => {
-  const employees = db
-    .prepare("SELECT id AS employeeId, name FROM employees")
-    .all();
+  const employees = db.prepare("SELECT id AS employeeId, name FROM employees").all();
 
   res.json(employees);
 });
@@ -202,6 +255,4 @@ app.get("/api/employees", (req, res) => {
 /* ---------------------------------------
    START SERVER
 --------------------------------------- */
-app.listen(4000, () =>
-  console.log("✅ Backend running on http://localhost:4000")
-);
+app.listen(4000, () => console.log("✅ Backend running on http://localhost:4000"));

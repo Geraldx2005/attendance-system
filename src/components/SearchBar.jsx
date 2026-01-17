@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function SearchBar({
   placeholder = "Search…",
@@ -6,22 +6,34 @@ export default function SearchBar({
   delay = 300,
 }) {
   const [query, setQuery] = useState("");
+  const lastValueRef = useRef("");
 
   useEffect(() => {
-    const t = setTimeout(() => onSearch(query.trim()), delay);
+    const trimmed = query.trim();
+
+    // ⛔ skip if value hasn't actually changed
+    if (trimmed === lastValueRef.current) return;
+
+    const t = setTimeout(() => {
+      lastValueRef.current = trimmed;
+      onSearch(trimmed);
+    }, delay);
+
     return () => clearTimeout(t);
   }, [query, delay, onSearch]);
 
   return (
-    <div className="
-      w-80 h-8
-      flex items-center gap-2
-      px-2
-      bg-nero-700
-      border border-nero-600
-      rounded-md
-      focus-within:border-nero-400
-    ">
+    <div
+      className="
+        w-80 h-8
+        flex items-center gap-2
+        px-2
+        bg-nero-700
+        border border-nero-600
+        rounded-md
+        focus-within:border-nero-400
+      "
+    >
       <svg
         className="w-4 h-4 text-nero-400"
         fill="none"
@@ -53,7 +65,11 @@ export default function SearchBar({
 
       {query && (
         <button
-          onClick={() => setQuery("")}
+          onClick={() => {
+            setQuery("");
+            lastValueRef.current = "";
+            onSearch("");
+          }}
           className="text-nero-400 hover:text-nero-300"
         >
           ✕

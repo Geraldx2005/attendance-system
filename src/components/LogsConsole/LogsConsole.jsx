@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import LogsToolbar from "./LogsToolbar";
 import LogRow from "./LogRow";
+import { to12Hour } from "../../utils/time";
 
 /* ---------------------------------------
    HELPERS
@@ -33,49 +34,67 @@ export default function LogsConsole({ employee }) {
   const [typeFilter, setTypeFilter] = useState("all");
   const [summaryMode, setSummaryMode] = useState(false);
 
+  const handleTypeChange = (type) => {
+    setTypeFilter(type);
+    setSummaryMode(false); // 🔥 radio behavior
+  };
+
+  const handleSummaryToggle = () => {
+    setSummaryMode(true);
+    setTypeFilter("all"); // 🔥 reset others
+  };
+
+
+  const loadLogs = () => {
+    if (!employee) return;
+
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(today.getDate() - 1);
+
+    const fmt = d => d.toISOString().slice(0, 10);
+
+    fetch(
+      `http://localhost:4000/api/logs/${employee.employeeId}?from=${fmt(from)}&to=${fmt(today)}`
+    )
+      .then(res => res.json())
+      .then(data => {
+        const formatted = data.map((l, i) => ({
+          id: i + 1,
+          date: l.date,
+          time: l.time,
+          type: l.type,
+          source: l.source,
+          dateKey: getDateKey(l.date),
+        }));
+        setLogs(formatted);
+      })
+      .catch(console.error);
+  };
+
+
+  useEffect(() => {
+    if (!employee) return;
+    loadLogs(); // 🔥 initial fetch when logs view opens
+  }, [employee]);
+
   /* ---------------------------------------
      FETCH LOGS
   --------------------------------------- */
   useEffect(() => {
-    if (!employee) return;
+    if (!window.ipc || !employee) return;
 
-    const loadLogs = () => {
-      if (!employee) return;
-
-      const today = new Date();
-      const from = new Date(today);
-      from.setDate(today.getDate() - 1);
-
-      const fmt = d => d.toISOString().slice(0, 10);
-
-      fetch(
-        `http://localhost:4000/api/logs/${employee.employeeId}?from=${fmt(from)}&to=${fmt(today)}`
-      )
-        .then(res => res.json())
-        .then(data => {
-          const formatted = data.map((l, i) => ({
-            id: i + 1,
-            date: l.date,
-            time: l.time,
-            type: l.type,
-            source: l.source,
-            dateKey: getDateKey(l.date),
-          }));
-          setLogs(formatted);
-        })
-        .catch(console.error);
+    const handler = ({ employeeId }) => {
+      if (employeeId && employee.employeeId !== employeeId) return;
+      loadLogs();
     };
 
+    window.ipc.onAttendanceInvalidated(handler);
 
-    loadLogs(); // initial fetch
-
-    const interval = setInterval(() => {
-      loadLogs(); // auto update
-    }, 15000); // every 15 seconds
-
-    return () => clearInterval(interval);
+    return () => {
+      window.ipc.offAttendanceInvalidated(handler);
+    };
   }, [employee]);
-
 
   /* ---------------------------------------
      FILTER BY DATE
@@ -136,11 +155,12 @@ export default function LogsConsole({ employee }) {
         dateFilter={dateFilter}
         setDateFilter={setDateFilter}
         typeFilter={typeFilter}
-        setTypeFilter={setTypeFilter}
+        onTypeChange={handleTypeChange}
         summaryMode={summaryMode}
-        setSummaryMode={setSummaryMode}
+        onSummaryClick={handleSummaryToggle}
         duration={daySummary?.duration}
       />
+
 
       <div className="flex-1 overflow-auto minimal-scrollbar bg-nero-900 border border-nero-700 rounded-xl">
         {logsToShow.length === 0 && (

@@ -3,6 +3,7 @@ import {
   IoLogOutOutline,
   IoCalendarOutline,
 } from "react-icons/io5";
+import { to12Hour } from "../../utils/time";
 
 const meta = {
   IN: {
@@ -20,7 +21,6 @@ const meta = {
 };
 
 export default function LogRow({ log }) {
-  console.log(log);
   const m = meta[log.type];
 
   return (
@@ -43,10 +43,9 @@ export default function LogRow({ log }) {
           <IoCalendarOutline className="text-nero-600" />
           <span>{log.date}</span>
           <span className="text-nero-600">•</span>
-          <span>{log.time}</span>
+          <span>{to12Hour(log.time)}</span>
         </div>
       </div>
-
     </div>
   );
 }

@@ -94,7 +94,7 @@ function App() {
           <img
             src={theme === "dark" ? FairtechDark : FairtechLight}
             alt="Fairtech"
-            className="h-7 object-contain transition-opacity"
+            className="h-6 object-contain transition-opacity"
           />
         </div>
 

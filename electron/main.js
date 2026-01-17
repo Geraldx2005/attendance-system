@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path";
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
@@ -9,6 +9,21 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 let backendProcess;
 
+/* ---------------------------------------
+   IPC EMITTER
+--------------------------------------- */
+function notifyAttendanceInvalidation(payload) {
+  if (!mainWindow) return;
+
+  mainWindow.webContents.send(
+    "attendance:invalidated",
+    payload
+  );
+}
+
+/* ---------------------------------------
+   START BACKEND
+--------------------------------------- */
 function startBackend() {
   const backendPath = path.join(
     process.cwd(),
@@ -17,10 +32,19 @@ function startBackend() {
   );
 
   backendProcess = spawn("node", [backendPath], {
-    stdio: "inherit",
+    stdio: ["inherit", "inherit", "inherit", "ipc"], // 👈 IMPORTANT
+  });
+
+  backendProcess.on("message", (msg) => {
+    if (msg?.type === "attendance:invalidated") {
+      notifyAttendanceInvalidation(msg);
+    }
   });
 }
 
+/* ---------------------------------------
+   WINDOW
+--------------------------------------- */
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
