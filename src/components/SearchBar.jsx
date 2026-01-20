@@ -11,7 +11,7 @@ export default function SearchBar({
   useEffect(() => {
     const trimmed = query.trim();
 
-    // ⛔ skip if value hasn't actually changed
+    // skip if value hasn't actually changed
     if (trimmed === lastValueRef.current) return;
 
     const t = setTimeout(() => {

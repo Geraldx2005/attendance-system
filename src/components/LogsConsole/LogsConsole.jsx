@@ -1,11 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
 import LogsToolbar from "./LogsToolbar";
 import LogRow from "./LogRow";
-import { to12Hour } from "../../utils/time";
+import { apiFetch } from "../../utils/api";
+import { IoDocumentTextOutline } from "react-icons/io5";
 
-/* ---------------------------------------
-   HELPERS
---------------------------------------- */
+/* Helpers */
 function parseTimeToMinutes(time) {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
@@ -36,12 +35,12 @@ export default function LogsConsole({ employee }) {
 
   const handleTypeChange = (type) => {
     setTypeFilter(type);
-    setSummaryMode(false); // 🔥 radio behavior
+    setSummaryMode(false); // radio behavior
   };
 
   const handleSummaryToggle = () => {
     setSummaryMode(true);
-    setTypeFilter("all"); // 🔥 reset others
+    setTypeFilter("all"); // reset others
   };
 
 
@@ -54,8 +53,8 @@ export default function LogsConsole({ employee }) {
 
     const fmt = d => d.toISOString().slice(0, 10);
 
-    fetch(
-      `http://localhost:4000/api/logs/${employee.employeeId}?from=${fmt(from)}&to=${fmt(today)}`
+    apiFetch(
+      `/api/logs/${employee.employeeId}?from=${fmt(from)}&to=${fmt(today)}`
     )
       .then(res => res.json())
       .then(data => {
@@ -75,12 +74,10 @@ export default function LogsConsole({ employee }) {
 
   useEffect(() => {
     if (!employee) return;
-    loadLogs(); // 🔥 initial fetch when logs view opens
+    loadLogs(); // initial fetch when logs view opens
   }, [employee]);
 
-  /* ---------------------------------------
-     FETCH LOGS
-  --------------------------------------- */
+  /* Fetch Logs */
   useEffect(() => {
     if (!window.ipc || !employee) return;
 
@@ -96,16 +93,12 @@ export default function LogsConsole({ employee }) {
     };
   }, [employee]);
 
-  /* ---------------------------------------
-     FILTER BY DATE
-  --------------------------------------- */
+  /* Filter By Date */
   const dayLogs = useMemo(() => {
     return logs.filter((l) => l.dateKey === dateFilter);
   }, [logs, dateFilter]);
 
-  /* ---------------------------------------
-     FILTER BY TYPE
-  --------------------------------------- */
+  /* Filter By Type */
   const filteredLogs = useMemo(() => {
     return dayLogs.filter((l) => {
       if (typeFilter === "in") return l.type === "IN";
@@ -114,9 +107,7 @@ export default function LogsConsole({ employee }) {
     });
   }, [dayLogs, typeFilter]);
 
-  /* ---------------------------------------
-     DAY SUMMARY (INDEPENDENT)
-  --------------------------------------- */
+  /* Day Summary */
   const daySummary = useMemo(() => {
     if (!summaryMode) return null;
 
@@ -162,17 +153,26 @@ export default function LogsConsole({ employee }) {
       />
 
 
-      <div className="flex-1 overflow-auto minimal-scrollbar bg-nero-900 border border-nero-700 rounded-xl">
-        {logsToShow.length === 0 && (
-          <div className="h-full flex items-center justify-center text-nero-500 text-sm">
-            No logs found
+      <div className="flex-1 bg-nero-900 border border-nero-700 rounded-xl flex">
+        {logsToShow.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-nero-450">
+            <IoDocumentTextOutline className="text-6xl mb-3 opacity-60" />
+            <div className="text-lg font-medium text-nero-300">
+              No Logs Found
+            </div>
+            <div className="text-sm text-nero-500 mt-1">
+              There are no logs for the selected day
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-auto minimal-scrollbar">
+            {logsToShow.map((log) => (
+              <LogRow key={log.id} log={log} />
+            ))}
           </div>
         )}
-
-        {logsToShow.map((log) => (
-          <LogRow key={log.id} log={log} />
-        ))}
       </div>
+
     </div>
   );
 }

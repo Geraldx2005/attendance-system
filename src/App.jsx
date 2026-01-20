@@ -4,6 +4,8 @@ import AttendanceCalendar from "./components/AttendanceCalendar";
 import LogsConsole from "./components/LogsConsole/LogsConsole";
 import FairtechDark from "./assets/Fairtech-dark.svg";
 import FairtechLight from "./assets/Fairtech-light.svg";
+import SettingsDialog from "./components/SettingsDialog";
+import { apiFetch } from "./utils/api";
 
 // Icons
 import {
@@ -12,13 +14,12 @@ import {
   IoPersonSharp,
   IoMoon,
   IoSunny,
+  IoSettingsSharp,
 } from "react-icons/io5";
 import { LuSearchX } from "react-icons/lu";
 
 function App() {
-  /* ---------------------------------------
-     STATE
-  --------------------------------------- */
+  /* State */
   const [activeView, setActiveView] = useState("ATTENDANCE");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
 
@@ -28,9 +29,10 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const [theme, setTheme] = useState("dark");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const fetchEmployees = () => {
-    fetch("http://localhost:4000/api/employees")
+    apiFetch("/api/employees")
       .then(res => res.json())
       .then(data => {
         setEmployees(data);
@@ -41,9 +43,7 @@ function App() {
       });
   };
 
-  /* ---------------------------------------
-     LOAD EMPLOYEES FROM CSV
-  --------------------------------------- */
+  /* Load Employees from CSV */
   useEffect(() => {
     fetchEmployees();
 
@@ -54,18 +54,14 @@ function App() {
     return () => clearInterval(interval);
   }, [searchQuery]);
 
-  /* ---------------------------------------
-     THEME
-  --------------------------------------- */
+  /* Theme */
   const toggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark";
     setTheme(nextTheme);
     document.documentElement.setAttribute("data-theme", nextTheme);
   };
 
-  /* ---------------------------------------
-     SEARCH
-  --------------------------------------- */
+  /* Search */
   const handleSearch = (query) => {
     setSearchQuery(query);
 
@@ -84,9 +80,15 @@ function App() {
     );
   };
 
-
   return (
     <main className="w-full h-screen flex bg-nero-900 text-nero-300 select-none">
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        theme={theme}
+        toggleTheme={toggleTheme}
+      />
+
       {/* -------------------------------- Sidebar -------------------------------- */}
       <div className="w-14 bg-nero-800 border-r-2 border-nero-900 flex flex-col items-center gap-2 pb-3">
         {/* Logo */}
@@ -121,11 +123,11 @@ function App() {
         <div className="flex-1" />
 
         <button
-          onClick={toggleTheme}
+          onClick={() => setSettingsOpen(true)}
           className="w-9 h-9 rounded-md flex items-center justify-center
-          text-nero-400 hover:bg-nero-700"
+  text-nero-400 hover:bg-nero-700"
         >
-          {theme === "dark" ? <IoSunny /> : <IoMoon />}
+          <IoSettingsSharp />
         </button>
       </div>
 
@@ -215,9 +217,10 @@ function App() {
                 </div>
               </div>
 
-              <div className="flex-1 p-3">
+              <div className="flex-1 p-3 flex min-h-0">
                 <LogsConsole employee={selectedEmployee} />
               </div>
+
             </>
           )}
         </div>
