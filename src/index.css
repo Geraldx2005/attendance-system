@@ -363,3 +363,7 @@
 .fc-timegrid-event.day-log-event .fc-event-main > div {
   margin-top: 3px;   /* adjust: 2px–4px feels best */
 }
+
+.fc-event {
+  transition: opacity 0.15s ease-in-out;
+}

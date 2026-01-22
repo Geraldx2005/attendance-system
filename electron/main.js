@@ -17,7 +17,7 @@ function generateInternalToken() {
 const INTERNAL_TOKEN = generateInternalToken();
 
 /* Default CSV Path */
-const DEFAULT_CSV_PATH = "C:\\essl\\data\\attendance_raw.csv";
+const DEFAULT_CSV_PATH = "C:\\essl\\data";
 
 /* Path Setup */
 const __filename = fileURLToPath(import.meta.url);
@@ -96,10 +96,9 @@ ipcMain.handle("select-csv-path", async () => {
   if (!mainWindow) return null;
 
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-    title: "Select Attendance CSV",
+    title: "Select Attendance CSV Folder",
     defaultPath: ensureCSVPath(),
-    filters: [{ name: "CSV Files", extensions: ["csv"] }],
-    properties: ["openFile"],
+    properties: ["openDirectory"],
   });
 
   if (canceled || !filePaths.length) return null;

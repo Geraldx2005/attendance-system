@@ -92,7 +92,7 @@ function App() {
       {/* -------------------------------- Sidebar -------------------------------- */}
       <div className="w-14 bg-nero-800 border-r-2 border-nero-900 flex flex-col items-center gap-2 pb-3">
         {/* Logo */}
-        <div className="w-full h-14 flex items-center justify-center border-b-2 border-nero-900 pt-1">
+        <div className="w-full h-14 flex items-center justify-center border-b-2 border-nero-900 pt-1 select-none">
           <img
             src={theme === "dark" ? FairtechDark : FairtechLight}
             alt="Fairtech"

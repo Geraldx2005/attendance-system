@@ -97,10 +97,10 @@ export default function SettingsDialog({
                 {/* CSV PATH */}
                 <div className="mb-2">
                     <div className="text-sm font-medium mb-1">
-                        Attendance CSV Path
+                        Attendance CSV Folder
                     </div>
                     <div className="text-xs text-nero-500 mb-2">
-                        This file is watched and re-ingested automatically
+                        This folder is watched. Current month CSV is auto-detected.
                     </div>
 
                     <div className="flex items-center gap-2">

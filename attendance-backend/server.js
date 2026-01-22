@@ -6,6 +6,9 @@ import { fileURLToPath } from "url";
 import { parse } from "csv-parse/sync";
 import db from "./db.js";
 
+/* -------------------- */
+/* SERVER CONSTANTS */
+/* -------------------- */
 const SERVER_PORT = Number(process.env.SERVER_PORT || 47832);
 const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN;
 
@@ -20,6 +23,65 @@ const CSV_PATH = process.env.CSV_PATH;
 
 const USER_DATA_PATH = process.env.USER_DATA_PATH;
 
+/* -------------------- */
+/* FILE LOGGER */
+/* -------------------- */
+const LOG_DIR = path.join(USER_DATA_PATH, "logs");
+function getIngestLogPath() {
+  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  return path.join(LOG_DIR, `ingest-${date}.log`);
+}
+
+function logIngest(message, level = "INFO") {
+  try {
+    if (!fs.existsSync(LOG_DIR)) {
+      fs.mkdirSync(LOG_DIR, { recursive: true });
+    }
+
+    const ts = new Date().toISOString();
+    const line = `[${ts}] [${level}] ${message}\n`;
+
+    fs.appendFileSync(getIngestLogPath(), line);
+  } catch (err) {
+    // last-resort fallback
+    console.error("Failed to write ingest log:", err.message);
+  }
+}
+
+/* -------------------- */
+/* LOG CLEANUP (30 DAYS) */
+/* -------------------- */
+
+function cleanupOldLogs(days = 30) {
+  try {
+    if (!fs.existsSync(LOG_DIR)) return;
+
+    const files = fs.readdirSync(LOG_DIR);
+    const now = Date.now();
+    const maxAgeMs = days * 24 * 60 * 60 * 1000;
+
+    for (const file of files) {
+      // only touch ingest logs
+      if (!file.startsWith("ingest-") || !file.endsWith(".log")) continue;
+
+      const filePath = path.join(LOG_DIR, file);
+      const stats = fs.statSync(filePath);
+
+      const age = now - stats.mtimeMs;
+      if (age > maxAgeMs) {
+        fs.unlinkSync(filePath);
+        logIngest(`Deleted old log file: ${file}`, "INFO");
+      }
+    }
+  } catch (err) {
+    console.error("Log cleanup failed:", err.message);
+  }
+}
+
+/* -------------------- */
+/* UTILS */
+/* -------------------- */
+
 function getYesterdayDate() {
   const d = new Date();
   d.setDate(d.getDate() - 1);
@@ -32,22 +94,52 @@ function ensureDir(dir) {
   }
 }
 
-/* CSV Reader */
-function readCSV() {
-  if (!CSV_PATH || !fs.existsSync(CSV_PATH)) {
-    console.warn("CSV path not set or file missing");
-    return [];
+// CSV Ingest State
+function getIngestStatePath() {
+  const now = new Date();
+  const ym = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return path.join(USER_DATA_PATH, `csv_ingest_${ym}.json`);
+}
+
+function getIngestState() {
+  const p = getIngestStatePath();
+  if (!fs.existsSync(p)) {
+    return { rows: 0, fileSize: 0, mtimeMs: 0 };
   }
 
   try {
-    const file = fs.readFileSync(CSV_PATH);
+    return JSON.parse(fs.readFileSync(p));
+  } catch {
+    return { rows: 0, fileSize: 0, mtimeMs: 0 };
+  }
+}
+
+function saveIngestState(state) {
+  fs.writeFileSync(getIngestStatePath(), JSON.stringify(state));
+}
+
+/* Get Current Month CSV Path */
+function getCurrentMonthCSV() {
+  const now = new Date();
+  const ym = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return path.join(CSV_PATH, `attendance_${ym}.csv`);
+}
+
+/* CSV Reader */
+function readCSV() {
+  if (!CSV_PATH || !fs.existsSync(CSV_PATH)) return [];
+
+  const csvFile = getCurrentMonthCSV();
+  if (!fs.existsSync(csvFile)) return [];
+
+  try {
+    const file = fs.readFileSync(csvFile);
     return parse(file, {
       columns: true,
       skip_empty_lines: true,
-      relax_column_count: true,
     });
   } catch (err) {
-    console.error("Failed to read CSV:", err.message);
+    logIngest(`CSV read error: ${err.message}`, "ERROR");
     return [];
   }
 }
@@ -74,21 +166,14 @@ function backupDatabaseIfNeeded() {
     return;
   }
 
-  const dateKey = getYesterdayDate();     // previous completed day
-  const monthKey = dateKey.slice(0, 7);   // YYYY-MM
+  const dateKey = getYesterdayDate(); // previous completed day
+  const monthKey = dateKey.slice(0, 7); // YYYY-MM
 
-  const backupsRoot = path.join(
-    USER_DATA_PATH,
-    "backups",
-    monthKey
-  );
+  const backupsRoot = path.join(USER_DATA_PATH, "backups", monthKey);
 
   ensureDir(backupsRoot);
 
-  const backupFile = path.join(
-    backupsRoot,
-    `attendance-${dateKey}.db`
-  );
+  const backupFile = path.join(backupsRoot, `attendance-${dateKey}.db`);
 
   // prevent duplicate backup
   if (fs.existsSync(backupFile)) {
@@ -111,11 +196,49 @@ function backupDatabaseIfNeeded() {
   console.log("DB backup completed:", backupFile);
 }
 
-
 /* CSV → Sqlite Ingest */
 function ingestCSVToDB() {
   const rows = readCSV();
+  console.log("CSV rows read:", rows.length);
+
+  // No CSV / empty CSV
   if (!rows.length) return;
+
+  // Read last ingested row count (per-month)
+  const csvFile = getCurrentMonthCSV();
+  const stats = fs.statSync(csvFile);
+
+  let { rows: lastRow, fileSize, mtimeMs } = getIngestState();
+
+  // MUTATION DETECTION
+  const fileShrank = stats.size < fileSize;
+  const fileRewritten = stats.mtimeMs !== mtimeMs;
+
+  if (fileShrank || fileRewritten) {
+    logIngest(`CSV mutation detected (shrank=${fileShrank}, rewritten=${fileRewritten}) → reset`, "WARN");
+    lastRow = 0;
+  }
+
+  // SELF-HEALING LOGIC
+  // If DB is empty but ingest state exists, reset ingest state
+  const dbCount = db.prepare("SELECT COUNT(*) AS c FROM attendance_logs").get().c;
+
+  if (dbCount === 0 && lastRow > 0) {
+    console.warn("DB empty but ingest state exists → resetting ingest state");
+    lastRow = 0;
+  }
+
+  // Only ingest new rows
+  const newRows = rows.slice(lastRow);
+  if (!newRows.length) {
+    saveIngestState({
+      rows: rows.length,
+      fileSize: stats.size,
+      mtimeMs: stats.mtimeMs,
+    });
+    logIngest(`No new rows. lastRow=${lastRow}, totalRows=${rows.length}`);
+    return;
+  }
 
   const insertEmployee = db.prepare(`
     INSERT OR IGNORE INTO employees (id, name)
@@ -128,21 +251,26 @@ function ingestCSVToDB() {
     VALUES (?, ?, ?, ?, 'Biometric')
   `);
 
-  const tx = db.transaction(() => {
-    for (const r of rows) {
+  db.transaction(() => {
+    for (const r of newRows) {
       if (!r.UserID) continue;
 
-      insertEmployee.run(r.UserID, r.EmployeeName);
+      insertEmployee.run(r.UserID, r.EmployeeName || r.UserID);
 
-      if (r.Date && r.Time && r.Status) {
-        insertLog.run(r.UserID, r.Date, r.Time.slice(0, 5), r.Status);
-      }
+      insertLog.run(r.UserID, r.Date, r.Time.slice(0, 5), r.Status);
     }
+  })();
+
+  logIngest(`Ingest completed. Inserted=${newRows.length}, totalRows=${rows.length}`);
+
+  // Save new ingest checkpoint
+  saveIngestState({
+    rows: rows.length,
+    fileSize: stats.size,
+    mtimeMs: stats.mtimeMs,
   });
 
-  tx();
-
-  // notify Electron that attendance data changed
+  // Notify Electron UI
   notifyChange();
 }
 
@@ -150,19 +278,27 @@ function ingestCSVToDB() {
 let ingestTimeout = null;
 
 if (fs.existsSync(CSV_PATH)) {
-  fs.watch(CSV_PATH, { persistent: true }, (eventType) => {
-    if (eventType !== "change") return;
+  fs.watch(CSV_PATH, (event, filename) => {
+    if (!filename) {
+      logIngest("fs.watch filename missing → fallback ingest", "WARN");
+      ingestCSVToDB();
+      return;
+    }
+
+    const current = path.basename(getCurrentMonthCSV());
+    if (filename !== current) return;
 
     if (ingestTimeout) clearTimeout(ingestTimeout);
 
     ingestTimeout = setTimeout(() => {
-      console.log("CSV changed → re-ingesting");
+      console.log("Current month CSV updated → ingest");
       ingestCSVToDB();
     }, 300);
   });
 }
 
-/* Backup + Ingest on StartUp */
+/* Startup Tasks → Backup + Ingest on StartUp + Log Cleanup */
+cleanupOldLogs(30);
 backupDatabaseIfNeeded();
 ingestCSVToDB();
 
@@ -198,7 +334,6 @@ app.use((req, res, next) => {
 
   next();
 });
-
 
 /* Logs Api (SQLITE) */
 app.get("/api/logs/:employeeId", (req, res) => {

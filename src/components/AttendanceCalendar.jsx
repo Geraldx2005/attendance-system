@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -74,102 +74,105 @@ export default function AttendanceCalendar({ employee }) {
   const [currentView, setCurrentView] = useState("dayGridMonth");
   const [currentDate, setCurrentDate] = useState(null);
 
-  const [calendarKey, setCalendarKey] = useState(0);
 
-  /* Load Month Logs */
-  const loadMonth = (dateStr) => {
-    if (!employee) return;
-
-    // dateStr = YYYY-MM-DD → YYYY-MM
-    const month = dateStr.slice(0, 7);
-
-    apiFetch(
-      `/api/attendance/${employee.employeeId}?month=${month}`
-    )
-      .then((res) => res.json())
-      .then((data) => {
-        setEvents(
-          data.map((d) => ({
-            title: d.status === "Pending" ? "" : d.status,
-            start: d.date,
-            firstIn: d.firstIn,
-            lastOut: d.lastOut,
-            backgroundColor:
-              d.status === "Present"
-                ? "#2e7d32"
-                : d.status === "Half Day"
-                  ? "#b7791f"
-                  : d.status === "Absent"
-                    ? "#8b1d1d"
-                    : "transparent",
-            borderColor: "transparent",
-          }))
-        );
-      })
-      .catch(console.error);
-  };
-
-
-  /* Load Day Logs */
-  const loadDay = (dateStr) => {
-    if (!employee) return;
-
-    apiFetch(
-      `/api/logs/${employee.employeeId}?date=${dateStr}`
-    )
-      .then(res => res.json())
-      .then(logs => {
-        setEvents(buildDayTimelineEvents(dateStr, logs));
-      })
-      .catch(console.error);
-  };
-
+  const calendarRef = useRef(null);
 
   /* Initial Load */
   useEffect(() => {
     if (!employee) return;
 
-    setEvents([]); // clear old employee data immediately
-
     if (currentView === "timeGridDay" && currentDate) {
-      loadDay(currentDate);
-
-      // force FullCalendar to re-render day timeline
-      setCalendarKey(k => k + 1);
+      apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
+        .then(res => res.json())
+        .then(logs => {
+          setEvents(buildDayTimelineEvents(currentDate, logs));
+        })
+        .catch(console.error);
     } else {
       const today = new Date().toISOString().slice(0, 10);
-      loadMonth(today);
-    }
+      const month = today.slice(0, 7);
 
-  }, [employee]);
+      apiFetch(`/api/attendance/${employee.employeeId}?month=${month}`)
+        .then(res => res.json())
+        .then(data => {
+          setEvents(
+            data.map((d) => ({
+              title: d.status === "Pending" ? "" : d.status,
+              start: d.date,
+              firstIn: d.firstIn,
+              lastOut: d.lastOut,
+              backgroundColor:
+                d.status === "Present"
+                  ? "#2e7d32"
+                  : d.status === "Half Day"
+                    ? "#b7791f"
+                    : d.status === "Absent"
+                      ? "#8b1d1d"
+                      : "transparent",
+              borderColor: "transparent",
+            }))
+          );
+        })
+        .catch(console.error);
+    }
+  }, [employee, currentView, currentDate]);
+
+
 
   /* IPC Invalidation */
-  useEffect(() => {
-    if (!window.ipc || !employee) return;
-    // console.log("IPC invalidation received");
+useEffect(() => {
+  if (!window.ipc || !employee) return;
 
-    const handler = ({ employeeId }) => {
-      if (employeeId && employee.employeeId !== employeeId) return;
+  const handler = ({ employeeId }) => {
+    if (employeeId && employee.employeeId !== employeeId) return;
 
-      if (currentView === "timeGridDay" && currentDate) {
-        loadDay(currentDate);
-      } else {
-        const today = new Date().toISOString().slice(0, 10);
-        loadMonth(today);
-      }
-    };
+    if (currentView === "timeGridDay" && currentDate) {
+      // reload only the current day
+      apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
+        .then(res => res.json())
+        .then(logs => {
+          setEvents(buildDayTimelineEvents(currentDate, logs));
+        })
+        .catch(console.error);
+    } else {
+      // reload month using SAME logic as useEffect
+      const today = new Date().toISOString().slice(0, 10);
+      const month = today.slice(0, 7);
 
-    window.ipc.onAttendanceInvalidated(handler);
+      apiFetch(`/api/attendance/${employee.employeeId}?month=${month}`)
+        .then(res => res.json())
+        .then(data => {
+          setEvents(
+            data.map((d) => ({
+              title: d.status === "Pending" ? "" : d.status,
+              start: d.date,
+              firstIn: d.firstIn,
+              lastOut: d.lastOut,
+              backgroundColor:
+                d.status === "Present"
+                  ? "#2e7d32"
+                  : d.status === "Half Day"
+                  ? "#b7791f"
+                  : d.status === "Absent"
+                  ? "#8b1d1d"
+                  : "transparent",
+              borderColor: "transparent",
+            }))
+          );
+        })
+        .catch(console.error);
+    }
+  };
 
-    return () => {
-      window.ipc.offAttendanceInvalidated(handler);
-    };
-  }, [employee, currentView, currentDate]);
+  window.ipc.onAttendanceInvalidated(handler);
+  return () => window.ipc.offAttendanceInvalidated(handler);
+}, [employee, currentView, currentDate]);
+
 
 
   return (
     <div className="h-full rounded-lg overflow-hidden border border-nero-700 bg-nero-900">
-      <FullCalendar key={calendarKey}
+      <FullCalendar ref={calendarRef}
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
         initialView="dayGridMonth"
 
@@ -204,16 +207,13 @@ export default function AttendanceCalendar({ employee }) {
         datesSet={(arg) => {
           setCurrentView(arg.view.type);
 
-          const date = arg.startStr.slice(0, 10);
-
           if (arg.view.type === "timeGridDay") {
-            setCurrentDate(date);
-            loadDay(date);
+            setCurrentDate(arg.startStr.slice(0, 10));
           } else {
             setCurrentDate(null);
-            loadMonth(date); // pass visible month
           }
         }}
+
 
       />
     </div>
