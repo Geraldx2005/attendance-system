@@ -5,7 +5,9 @@ import LogsConsole from "./components/LogsConsole/LogsConsole";
 import FairtechDark from "./assets/Fairtech-dark.svg";
 import FairtechLight from "./assets/Fairtech-light.svg";
 import SettingsDialog from "./components/SettingsDialog";
+import EmployeeMapDialog from "./components/EmployeeMapDialog";
 import { apiFetch } from "./utils/api";
+import { FaUserEdit } from "react-icons/fa";
 
 // Icons
 import {
@@ -31,6 +33,8 @@ function App() {
   const [theme, setTheme] = useState("dark");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  const [mapOpen, setMapOpen] = useState(false);
+
   const fetchEmployees = () => {
     apiFetch("/api/employees")
       .then(res => res.json())
@@ -42,6 +46,16 @@ function App() {
         }
       });
   };
+
+  function formatEmpId(id) {
+    if (!id) return "";
+
+    // extract numbers from ID (e.g., FT102 → 102)
+    const num = id.replace(/\D/g, "");
+
+    return `EMP${num.padStart(4, "0")}`;
+  }
+
 
   /* Load Employees from CSV */
   useEffect(() => {
@@ -88,6 +102,22 @@ function App() {
         theme={theme}
         toggleTheme={toggleTheme}
       />
+      <EmployeeMapDialog
+        open={mapOpen}
+        employee={selectedEmployee}
+        onClose={() => setMapOpen(false)}
+        onSaved={() => {
+          fetchEmployees();
+
+          // refresh selectedEmployee name instantly
+          setSelectedEmployee((prev) =>
+            prev
+              ? { ...prev, name: document.querySelector('input[placeholder="Enter employee name"]')?.value || prev.name }
+              : prev
+          );
+        }}
+      />
+
 
       {/* -------------------------------- Sidebar -------------------------------- */}
       <div className="w-14 bg-nero-800 border-r-2 border-nero-900 flex flex-col items-center gap-2 pb-3">
@@ -96,7 +126,7 @@ function App() {
           <img
             src={theme === "dark" ? FairtechDark : FairtechLight}
             alt="Fairtech"
-            className="h-6 object-contain transition-opacity"
+            className="h-6 object-contain transition-opacity select-none"
           />
         </div>
 
@@ -167,7 +197,7 @@ function App() {
 
                   <div className="text-sm font-medium">{emp.name}</div>
                   <div className="text-xs text-nero-400">
-                    {emp.employeeId}
+                    {formatEmpId(emp.employeeId)}
                   </div>
                 </div>
               );
@@ -192,11 +222,22 @@ function App() {
           {selectedEmployee && activeView === "ATTENDANCE" && (
             <>
               <div className="h-14 px-4 flex flex-col justify-center bg-nero-800 border-b-2 border-nero-900">
-                <div className="text-lg font-semibold">
-                  {selectedEmployee.name}
+                <div className="flex items-center gap-2">
+                  <div className="text-lg font-semibold">
+                    {selectedEmployee.name}
+                  </div>
+
+                  <button
+                    onClick={() => setMapOpen(true)}
+                    title="Edit employee name"
+                    className="text-nero-400 hover:text-nero-200"
+                  >
+                    <FaUserEdit size={14} />
+                  </button>
                 </div>
+
                 <div className="text-xs text-nero-500">
-                  Employee ID • {selectedEmployee.employeeId}
+                  Employee ID • {formatEmpId(selectedEmployee.employeeId)}
                 </div>
               </div>
 
@@ -209,11 +250,22 @@ function App() {
           {selectedEmployee && activeView === "LOGS" && (
             <>
               <div className="h-14 px-4 flex flex-col justify-center bg-nero-800 border-b-2 border-nero-900">
-                <div className="text-lg font-semibold">
-                  {selectedEmployee.name}
+                <div className="flex items-center gap-2">
+                  <div className="text-lg font-semibold">
+                    {selectedEmployee.name}
+                  </div>
+
+                  <button
+                    onClick={() => setMapOpen(true)}
+                    title="Edit employee name"
+                    className="text-nero-400 hover:text-nero-200"
+                  >
+                    <FaUserEdit size={14} />
+                  </button>
                 </div>
+
                 <div className="text-xs text-nero-500">
-                  Employee ID • {selectedEmployee.employeeId}
+                  Employee ID • {formatEmpId(selectedEmployee.employeeId)}
                 </div>
               </div>
 

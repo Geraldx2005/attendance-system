@@ -515,6 +515,28 @@ app.get("/api/employees", (req, res) => {
   res.json(employees);
 });
 
+/* Update Employee Name */
+app.post("/api/employees/:employeeId", express.json(), (req, res) => {
+  const { employeeId } = req.params;
+  const { name } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: "Name required" });
+  }
+
+  db.prepare(`
+    UPDATE employees
+    SET name = ?
+    WHERE id = ?
+  `).run(name.trim(), employeeId);
+
+  // notify UI to refresh lists
+  notifyChange(employeeId);
+
+  res.json({ ok: true });
+});
+
+
 /* Start Server */
 app.listen(SERVER_PORT, "127.0.0.1", () => {
   console.log(`Backend running on http://127.0.0.1:${SERVER_PORT}`);

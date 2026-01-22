@@ -1,12 +1,7 @@
 import { useEffect, useState } from "react";
 import { IoFolderOpenOutline } from "react-icons/io5";
 
-export default function SettingsDialog({
-    open,
-    onClose,
-    theme,
-    toggleTheme,
-}) {
+export default function SettingsDialog({ open, onClose, theme, toggleTheme, }) {
     const [csvPath, setCsvPath] = useState("");
     const [saving, setSaving] = useState(false);
 
@@ -18,6 +13,23 @@ export default function SettingsDialog({
             setCsvPath(path || "");
         });
     }, [open]);
+
+useEffect(() => {
+  if (!open) return;
+
+  const onEsc = (e) => {
+    if (e.key === "Escape") {
+      // 👇 remove focus from the trigger button
+      document.activeElement?.blur();
+      onClose();
+    }
+  };
+
+  window.addEventListener("keydown", onEsc);
+  return () => window.removeEventListener("keydown", onEsc);
+}, [open, onClose]);
+
+
 
     /* FILE PICKER */
     const pickCSV = async () => {
@@ -50,8 +62,10 @@ export default function SettingsDialog({
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-md flex items-center justify-center z-50">
-            <div className="w-125 bg-nero-900 border border-nero-700 rounded-2xl shadow-2xl p-5">
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-md flex items-center justify-center z-50"
+            onClick={onClose}>
+            <div className="w-125 bg-nero-900 border border-nero-700 rounded-2xl shadow-2xl p-5"
+                onClick={(e) => e.stopPropagation()}>
 
                 {/* Header */}
                 <div className="flex items-center justify-between mb-5">
