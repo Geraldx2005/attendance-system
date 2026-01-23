@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import LogsToolbar from "./LogsToolbar";
 import LogRow from "./LogRow";
 import { apiFetch } from "../../utils/api";
@@ -33,6 +33,8 @@ export default function LogsConsole({ employee }) {
   const [typeFilter, setTypeFilter] = useState("all");
   const [summaryMode, setSummaryMode] = useState(false);
 
+  const requestRef = useRef(0);
+
   const handleTypeChange = (type) => {
     setTypeFilter(type);
     setSummaryMode(false); // radio behavior
@@ -47,6 +49,8 @@ export default function LogsConsole({ employee }) {
   const loadLogs = () => {
     if (!employee) return;
 
+    const reqId = ++requestRef.current;
+
     const today = new Date();
     const from = new Date(today);
     from.setDate(today.getDate() - 1);
@@ -58,6 +62,8 @@ export default function LogsConsole({ employee }) {
     )
       .then(res => res.json())
       .then(data => {
+        if (reqId !== requestRef.current) return; // ❌ stale response
+
         const formatted = data.map((l, i) => ({
           id: i + 1,
           date: l.date,
@@ -66,11 +72,16 @@ export default function LogsConsole({ employee }) {
           source: l.source,
           dateKey: getDateKey(l.date),
         }));
+
         setLogs(formatted);
       })
       .catch(console.error);
   };
 
+  useEffect(() => {
+    setLogs([]);
+    requestRef.current++;
+  }, [employee]);
 
   useEffect(() => {
     if (!employee) return;
@@ -153,7 +164,7 @@ export default function LogsConsole({ employee }) {
       />
 
 
-      <div className="flex-1 bg-nero-900 border border-nero-700 rounded-xl flex">
+      <div className="flex-1 min-h-0 bg-nero-900 border border-nero-700 rounded-xl flex">
         {logsToShow.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-nero-450">
             <IoDocumentTextOutline className="text-6xl mb-3 opacity-60" />
@@ -165,9 +176,13 @@ export default function LogsConsole({ employee }) {
             </div>
           </div>
         ) : (
-          <div className="flex-1 overflow-auto minimal-scrollbar">
-            {logsToShow.map((log) => (
-              <LogRow key={log.id} log={log} />
+          <div className="flex-1 overflow-auto minimal-scrollbar pb-2">
+            {logsToShow.map((log, idx) => (
+              <LogRow
+                key={log.id}
+                log={log}
+                isLast={idx === logsToShow.length - 1}
+              />
             ))}
           </div>
         )}

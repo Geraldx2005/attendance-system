@@ -68,35 +68,62 @@ function buildDayTimelineEvents(date, logs) {
 }
 
 /* Component */
-export default function AttendanceCalendar({ employee }) {
+export default function AttendanceCalendar({ employee, onSummary }) {
   const [events, setEvents] = useState([]);
 
   const [currentView, setCurrentView] = useState("dayGridMonth");
   const [currentDate, setCurrentDate] = useState(null);
-
+  const [currentMonth, setCurrentMonth] = useState(
+    new Date().toISOString().slice(0, 7)
+  );
 
   const calendarRef = useRef(null);
+  const requestRef = useRef(0);
 
   /* Initial Load */
   useEffect(() => {
     if (!employee) return;
 
+    setEvents([]); // safe to reset events on employee change (avoid stale data)
+    const reqId = ++requestRef.current; // increment request version
+
     if (currentView === "timeGridDay" && currentDate) {
       apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
         .then(res => res.json())
         .then(logs => {
+          if (reqId !== requestRef.current) return; // avoids stale response
           setEvents(buildDayTimelineEvents(currentDate, logs));
         })
         .catch(console.error);
-    } else {
-      const today = new Date().toISOString().slice(0, 10);
-      const month = today.slice(0, 7);
 
-      apiFetch(`/api/attendance/${employee.employeeId}?month=${month}`)
+    } else {
+      apiFetch(
+        `/api/attendance/${employee.employeeId}?month=${currentMonth}`
+      )
         .then(res => res.json())
         .then(data => {
+          if (reqId !== requestRef.current) return; // avoids stale response
+          // -------- Attendance Summary --------
+          let present = 0;
+          let halfDay = 0;
+          let absent = 0;
+
+          for (const d of data) {
+            if (d.status === "Present") present++;
+            else if (d.status === "Half Day") halfDay++;
+            else if (d.status === "Absent") absent++;
+          }
+
+          onSummary?.({
+            present,
+            halfDay,
+            absent,
+            totalPresent: present + halfDay * 0.5,
+            totalDays: data.length,
+          });
+
           setEvents(
-            data.map((d) => ({
+            data.map(d => ({
               title: d.status === "Pending" ? "" : d.status,
               start: d.date,
               firstIn: d.firstIn,
@@ -115,60 +142,58 @@ export default function AttendanceCalendar({ employee }) {
         })
         .catch(console.error);
     }
-  }, [employee, currentView, currentDate]);
-
-
+  }, [employee, currentView, currentDate, currentMonth]);
 
   /* IPC Invalidation */
-useEffect(() => {
-  if (!window.ipc || !employee) return;
+  useEffect(() => {
+    if (!window.ipc || !employee) return;
 
-  const handler = ({ employeeId }) => {
-    if (employeeId && employee.employeeId !== employeeId) return;
+    const handler = ({ employeeId }) => {
+      if (employeeId && employee.employeeId !== employeeId) return;
 
-    if (currentView === "timeGridDay" && currentDate) {
-      // reload only the current day
-      apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
-        .then(res => res.json())
-        .then(logs => {
-          setEvents(buildDayTimelineEvents(currentDate, logs));
-        })
-        .catch(console.error);
-    } else {
-      // reload month using SAME logic as useEffect
-      const today = new Date().toISOString().slice(0, 10);
-      const month = today.slice(0, 7);
+      const reqId = ++requestRef.current; // invalidate old requests
 
-      apiFetch(`/api/attendance/${employee.employeeId}?month=${month}`)
-        .then(res => res.json())
-        .then(data => {
-          setEvents(
-            data.map((d) => ({
-              title: d.status === "Pending" ? "" : d.status,
-              start: d.date,
-              firstIn: d.firstIn,
-              lastOut: d.lastOut,
-              backgroundColor:
-                d.status === "Present"
-                  ? "#2e7d32"
-                  : d.status === "Half Day"
-                  ? "#b7791f"
-                  : d.status === "Absent"
-                  ? "#8b1d1d"
-                  : "transparent",
-              borderColor: "transparent",
-            }))
-          );
-        })
-        .catch(console.error);
-    }
-  };
+      if (currentView === "timeGridDay" && currentDate) {
+        apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
+          .then(res => res.json())
+          .then(logs => {
+            if (reqId !== requestRef.current) return;
+            setEvents(buildDayTimelineEvents(currentDate, logs));
+          })
+          .catch(console.error);
+      } else {
+        apiFetch(
+          `/api/attendance/${employee.employeeId}?month=${currentMonth}`
+        )
+          .then(res => res.json())
+          .then(data => {
+            if (reqId !== requestRef.current) return;
 
-  window.ipc.onAttendanceInvalidated(handler);
-  return () => window.ipc.offAttendanceInvalidated(handler);
-}, [employee, currentView, currentDate]);
+            setEvents(
+              data.map(d => ({
+                title: d.status === "Pending" ? "" : d.status,
+                start: d.date,
+                firstIn: d.firstIn,
+                lastOut: d.lastOut,
+                backgroundColor:
+                  d.status === "Present"
+                    ? "#2e7d32"
+                    : d.status === "Half Day"
+                      ? "#b7791f"
+                      : d.status === "Absent"
+                        ? "#8b1d1d"
+                        : "transparent",
+                borderColor: "transparent",
+              }))
+            );
+          })
+          .catch(console.error);
+      }
+    };
 
-
+    window.ipc.onAttendanceInvalidated(handler);
+    return () => window.ipc.offAttendanceInvalidated(handler);
+  }, [employee, currentView, currentDate]);
 
   return (
     <div className="h-full rounded-lg overflow-hidden border border-nero-700 bg-nero-900">
@@ -211,8 +236,13 @@ useEffect(() => {
             setCurrentDate(arg.startStr.slice(0, 10));
           } else {
             setCurrentDate(null);
+
+            // 👇 IMPORTANT: track visible month
+            const month = arg.startStr.slice(0, 7);
+            setCurrentMonth(month);
           }
         }}
+
 
 
       />

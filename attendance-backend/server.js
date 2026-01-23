@@ -94,6 +94,28 @@ function ensureDir(dir) {
   }
 }
 
+// Decide Punch Type
+function decidePunchType(employeeId, date) {
+  const last = db
+    .prepare(
+      `
+    SELECT type
+    FROM attendance_logs
+    WHERE employee_id = ?
+      AND date = ?
+    ORDER BY time DESC
+    LIMIT 1
+  `,
+    )
+    .get(employeeId, date);
+
+  // No previous log → IN
+  if (!last) return "IN";
+
+  // Toggle
+  return last.type === "IN" ? "OUT" : "IN";
+}
+
 // CSV Ingest State
 function getIngestStatePath() {
   const now = new Date();
@@ -198,6 +220,8 @@ function backupDatabaseIfNeeded() {
 
 /* CSV → Sqlite Ingest */
 function ingestCSVToDB() {
+  // In-memory punch state for THIS ingest run
+  const punchState = new Map();
   const rows = readCSV();
   console.log("CSV rows read:", rows.length);
 
@@ -230,6 +254,11 @@ function ingestCSVToDB() {
 
   // Only ingest new rows
   const newRows = rows.slice(lastRow);
+  newRows.sort((a, b) => {
+  if (a.Date !== b.Date) return a.Date.localeCompare(b.Date);
+  if (a.UserID !== b.UserID) return a.UserID.localeCompare(b.UserID);
+  return a.Time.localeCompare(b.Time);
+});
   if (!newRows.length) {
     saveIngestState({
       rows: rows.length,
@@ -257,7 +286,36 @@ function ingestCSVToDB() {
 
       insertEmployee.run(r.UserID, r.EmployeeName || r.UserID);
 
-      insertLog.run(r.UserID, r.Date, r.Time.slice(0, 5), r.Status);
+      const key = `${r.UserID}|${r.Date}`;
+
+      let lastType = punchState.get(key);
+
+      if (!lastType) {
+        const dbNext = decidePunchType(r.UserID, r.Date);
+        lastType = dbNext === "IN" ? "OUT" : "IN";
+      }
+
+      const punchType = lastType === "IN" ? "OUT" : "IN";
+
+      // check duplicate BEFORE advancing state
+      const exists = db
+        .prepare(
+          `
+  SELECT 1 FROM attendance_logs
+  WHERE employee_id = ? AND date = ? AND time = ?
+`,
+        )
+        .get(r.UserID, r.Date, r.Time.slice(0, 5));
+
+      if (exists) {
+        // skip this row only
+        continue;
+      }
+
+      // insert succeeded → NOW advance state
+      insertLog.run(r.UserID, r.Date, r.Time.slice(0, 5), punchType);
+
+      punchState.set(key, punchType);
     }
   })();
 
@@ -351,7 +409,7 @@ app.get("/api/logs/:employeeId", (req, res) => {
       FROM attendance_logs
       WHERE employee_id = ? AND date = ?
       ORDER BY time
-    `
+    `,
       )
       .all(employeeId, date);
   } else if (from && to) {
@@ -364,7 +422,7 @@ app.get("/api/logs/:employeeId", (req, res) => {
       WHERE employee_id = ?
         AND date BETWEEN ? AND ?
       ORDER BY date, time
-    `
+    `,
       )
       .all(employeeId, from, to);
   } else {
@@ -376,7 +434,7 @@ app.get("/api/logs/:employeeId", (req, res) => {
       FROM attendance_logs
       WHERE employee_id = ?
       ORDER BY date, time
-    `
+    `,
       )
       .all(employeeId);
   }
@@ -407,7 +465,7 @@ app.get("/api/attendance/:employeeId", (req, res) => {
     WHERE employee_id = ?
       AND date BETWEEN ? AND ?
     GROUP BY date
-  `
+  `,
       )
       .all(employeeId, from, to);
 
@@ -470,7 +528,7 @@ app.get("/api/attendance/:employeeId", (req, res) => {
       WHERE employee_id = ?
       GROUP BY date
       ORDER BY date
-    `
+    `,
       )
       .all(employeeId);
   }
@@ -524,18 +582,19 @@ app.post("/api/employees/:employeeId", express.json(), (req, res) => {
     return res.status(400).json({ error: "Name required" });
   }
 
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE employees
     SET name = ?
     WHERE id = ?
-  `).run(name.trim(), employeeId);
+  `,
+  ).run(name.trim(), employeeId);
 
   // notify UI to refresh lists
   notifyChange(employeeId);
 
   res.json({ ok: true });
 });
-
 
 /* Start Server */
 app.listen(SERVER_PORT, "127.0.0.1", () => {

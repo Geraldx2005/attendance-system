@@ -20,12 +20,16 @@ const meta = {
   },
 };
 
-export default function LogRow({ log }) {
+export default function LogRow({ log, isLast }) {
   const m = meta[log.type];
 
   return (
-    <div className="flex items-center gap-4 px-4 py-3 border-b border-nero-800 hover:bg-nero-800 transition">
-      
+    <div
+      className={`flex items-center gap-4 px-4 py-3 hover:bg-nero-800 transition
+    ${!isLast ? "border-b border-nero-800" : ""}
+  `}
+    >
+
       {/* ICON */}
       <div
         className={`w-9 h-9 rounded-lg flex items-center justify-center ${m.bg} ${m.color}`}
