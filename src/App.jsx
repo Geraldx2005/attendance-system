@@ -6,7 +6,9 @@ import FairtechDark from "./assets/Fairtech-dark.svg";
 import FairtechLight from "./assets/Fairtech-light.svg";
 import SettingsDialog from "./components/SettingsDialog";
 import EmployeeMapDialog from "./components/EmployeeMapDialog";
+import ManualSyncButton from "./components/ManualSyncButton";
 import { apiFetch } from "./utils/api";
+import { to12Hour } from "./utils/time";
 import Reports from "./components/Reports";
 import { FaUserEdit } from "react-icons/fa";
 
@@ -36,10 +38,18 @@ function App() {
   const [mapOpen, setMapOpen] = useState(false);
   const [attendanceSummary, setAttendanceSummary] = useState(null);
 
+  const [logsDayStats, setLogsDayStats] = useState(null);
+
   const fetchEmployees = () => {
     apiFetch("/api/employees")
       .then(res => res.json())
       .then(data => {
+        data.sort((a, b) => {
+          const na = parseInt(a.employeeId.replace(/\D/g, ""), 10) || 0;
+          const nb = parseInt(b.employeeId.replace(/\D/g, ""), 10) || 0;
+          return na - nb;
+        });
+
         setEmployees(data);
 
         if (!searchQuery) {
@@ -279,20 +289,19 @@ function App() {
 
               <div className="px-3 pt-2 pb-0 flex flex-col justify-center">
 
-                <div className="w-full bg-nero-700 py-1 px-2 rounded-md flex items-center justify-between">
-                  <span className="text-md font-medium">Attendance</span>
+                <div className="w-full bg-nero-700 px-3 rounded-md flex items-center justify-between">
 
                   {attendanceSummary && (
                     <div className="flex gap-3 text-[13px]">
-                      <span className="text-emerald-400">
+                      <span className="text-emerald-300">
                         Present: {attendanceSummary.present}
                       </span>
 
-                      <span className="text-amber-400">
+                      <span className="text-amber-200">
                         Half day: {attendanceSummary.halfDay}
                       </span>
 
-                      <span className="text-rose-600">
+                      <span className="text-red-300">
                         Absent: {attendanceSummary.absent}
                       </span>
 
@@ -301,6 +310,8 @@ function App() {
                       </span>
                     </div>
                   )}
+
+                  <ManualSyncButton />
                 </div>
               </div>
 
@@ -334,8 +345,37 @@ function App() {
                 </div>
               </div>
 
+              <div className="px-3 pt-2 pb-0 flex flex-col justify-center">
+
+                <div className="w-full bg-nero-700 px-3 rounded-md flex items-center justify-between">
+
+                  {logsDayStats && (
+                    <div className="flex gap-3 text-[13px]">
+                      <span className="text-emerald-300">
+                        Working: {logsDayStats.working}
+                      </span>
+
+                      <span className="text-red-300">
+                        Break: {logsDayStats.breaks}
+                      </span>
+
+                      <span className="text-nero-300 border-l border-nero-500 pl-3">
+                        In: {to12Hour(logsDayStats.firstIn?.time)}
+                      </span>
+
+                      <span className="text-nero-300">
+                        Out: {to12Hour(logsDayStats.lastOut?.time)}
+                      </span>
+                    </div>
+                  )}
+
+
+                  <ManualSyncButton />
+                </div>
+              </div>
+
               <div className="flex-1 p-3 flex min-h-0">
-                <LogsConsole employee={selectedEmployee} />
+                <LogsConsole employee={selectedEmployee} onDayStats={setLogsDayStats} />
               </div>
             </>
           )}

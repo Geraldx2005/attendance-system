@@ -12,24 +12,19 @@ const db = new Database(dbPath);
 // --------------------
 // PRAGMAS (IMPORTANT)
 // --------------------
-db.pragma("journal_mode = WAL");   // fast concurrent reads/writes
-db.pragma("foreign_keys = ON");    // enforce relations
+db.pragma("journal_mode = WAL"); // fast concurrent reads/writes
+db.pragma("foreign_keys = ON"); // enforce relations
 
 // --------------------
 // TABLES
 // --------------------
 db.exec(`
-  CREATE TABLE IF NOT EXISTS employees (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL
-  );
-
   CREATE TABLE IF NOT EXISTS attendance_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     employee_id TEXT NOT NULL,
-    date TEXT NOT NULL,             -- YYYY-MM-DD
-    time TEXT NOT NULL,             -- HH:mm
-    type TEXT CHECK(type IN ('IN','OUT')),
+    date TEXT NOT NULL,          -- YYYY-MM-DD
+    time TEXT NOT NULL,          -- HH:mm:ss
+    type TEXT NOT NULL CHECK (type IN ('IN','OUT')),
     source TEXT DEFAULT 'Biometric',
 
     UNIQUE(employee_id, date, time, type),
@@ -43,11 +38,24 @@ db.exec(`
 // INDEXES (CRITICAL FOR SCALE)
 // --------------------
 db.exec(`
-  CREATE INDEX IF NOT EXISTS idx_logs_employee_date
-  ON attendance_logs(employee_id, date);
+  CREATE TABLE IF NOT EXISTS employees (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL
+  );
 
-  CREATE INDEX IF NOT EXISTS idx_logs_employee_date_time
-  ON attendance_logs(employee_id, date, time);
+  CREATE TABLE IF NOT EXISTS attendance_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id TEXT NOT NULL,
+    date TEXT NOT NULL,          -- YYYY-MM-DD
+    time TEXT NOT NULL,          -- HH:mm:ss
+    type TEXT NOT NULL CHECK (type IN ('IN','OUT')),
+    source TEXT DEFAULT 'Biometric',
+
+    UNIQUE(employee_id, date, time, type),
+    FOREIGN KEY (employee_id)
+      REFERENCES employees(id)
+      ON DELETE CASCADE
+  );
 `);
 
 export default db;

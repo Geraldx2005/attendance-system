@@ -1,59 +1,78 @@
 import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import path from "path";
-import { spawn } from "child_process";
+import { spawn, execFile } from "child_process";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
 import fs from "fs";
 
 const store = new Store();
 
-/* Security Constants */
+/* ================= CONFIG ================= */
+const SERVICE_EXE = "C:\\essl\\service\\EsslCsvExporterService.exe";
+const HEALTH_STATUS_FILE = "C:\\essl\\health\\status.json";
 const SERVER_PORT = 47832;
+const DEFAULT_CSV_PATH = "C:\\essl\\data";
+/* ========================================== */
 
+/* Internal token */
 function generateInternalToken() {
   return Math.random().toString(36).slice(2) + Date.now();
 }
-
 const INTERNAL_TOKEN = generateInternalToken();
 
-/* Default CSV Path */
-const DEFAULT_CSV_PATH = "C:\\essl\\data";
-
-/* Path Setup */
+/* Path setup */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mainWindow;
 let backendProcess;
 
-/* Ensure Default CSV Path */
+/* CSV Path */
 function ensureCSVPath() {
   let csvPath = store.get("csvPath");
-
   if (!csvPath) {
     csvPath = DEFAULT_CSV_PATH;
     store.set("csvPath", csvPath);
   }
-
   return csvPath;
 }
 
-/* IPC Emitter */
+/* 🔥 AUTO SYNC TIME (from status.json) */
+function getAutoSyncTime() {
+  try {
+    if (!fs.existsSync(HEALTH_STATUS_FILE)) return null;
+
+    const raw = fs.readFileSync(HEALTH_STATUS_FILE, "utf-8");
+    const json = JSON.parse(raw);
+
+    if (!json.lastSuccess) return null;
+
+    const iso = json.lastSuccess.replace(" ", "T");
+    return new Date(iso).toISOString();
+  } catch (err) {
+    console.error("Failed to read health status.json:", err.message);
+    return null;
+  }
+}
+
+/* IPC → Renderer */
 function notifyAttendanceInvalidation(payload) {
   if (!mainWindow) return;
   mainWindow.webContents.send("attendance:invalidated", payload);
 }
 
-/* Start Backend */
+/* Backend */
 function startBackend() {
-  const backendPath = path.join(process.cwd(), "attendance-backend", "server.js");
-
-  const csvPath = ensureCSVPath();
+  const backendPath = path.join(
+    process.cwd(),
+    "attendance-backend",
+    "server.js"
+  );
 
   backendProcess = spawn("node", [backendPath], {
     env: {
       ...process.env,
-      CSV_PATH: csvPath,
+      CSV_PATH: ensureCSVPath(),
       USER_DATA_PATH: app.getPath("userData"),
       SERVER_PORT,
       INTERNAL_TOKEN,
@@ -68,12 +87,8 @@ function startBackend() {
   });
 }
 
-/* Restart Backend */
 function restartBackend() {
-  if (backendProcess) {
-    backendProcess.kill();
-    backendProcess = null;
-  }
+  if (backendProcess) backendProcess.kill();
   startBackend();
 }
 
@@ -91,10 +106,10 @@ function createWindow() {
   mainWindow.loadURL("http://localhost:5173");
 }
 
-/* Setting IPC */
-ipcMain.handle("select-csv-path", async () => {
-  if (!mainWindow) return null;
+/* ================= IPC HANDLERS ================= */
 
+// CSV picker
+ipcMain.handle("select-csv-path", async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     title: "Select Attendance CSV Folder",
     defaultPath: ensureCSVPath(),
@@ -105,26 +120,39 @@ ipcMain.handle("select-csv-path", async () => {
 
   store.set("csvPath", filePaths[0]);
   restartBackend();
-
   return filePaths[0];
 });
 
-ipcMain.handle("get-csv-path", () => {
-  return ensureCSVPath();
-});
+ipcMain.handle("get-csv-path", () => ensureCSVPath());
 
 ipcMain.handle("set-csv-path", (_, newPath) => {
   if (!newPath || !fs.existsSync(newPath)) {
     return { ok: false, error: "File not found" };
   }
-
   store.set("csvPath", newPath);
   restartBackend();
-
   return { ok: true };
 });
 
-/* App Lifecycle */
+/* Manual Sync */
+ipcMain.handle("manual-sync", async () => {
+  return new Promise((resolve) => {
+    execFile(SERVICE_EXE, ["manual"], { windowsHide: true }, (error) => {
+      if (error) {
+        resolve({ ok: false, error: error.message });
+      } else {
+        resolve({ ok: true, syncedAt: new Date().toISOString() });
+      }
+    });
+  });
+});
+
+/* Auto Sync Time */
+ipcMain.handle("get-auto-sync-time", () => {
+  return { autoSyncAt: getAutoSyncTime() };
+});
+
+/* App lifecycle */
 app.whenReady().then(() => {
   ensureCSVPath();
   startBackend();

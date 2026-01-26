@@ -27,7 +27,7 @@ function getDateKey(dateStr) {
   return "other";
 }
 
-export default function LogsConsole({ employee }) {
+export default function LogsConsole({ employee, onDayStats }) {
   const [logs, setLogs] = useState([]);
   const [dateFilter, setDateFilter] = useState("today");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -42,8 +42,15 @@ export default function LogsConsole({ employee }) {
 
   const handleSummaryToggle = () => {
     setSummaryMode(true);
-    setTypeFilter("all"); // reset others
   };
+
+  function minutesBetween(a, b) {
+    return parseTimeToMinutes(b) - parseTimeToMinutes(a);
+  }
+
+  function formatMinutes(min) {
+    return `${Math.floor(min / 60)}h ${min % 60}m`;
+  }
 
 
   const loadLogs = () => {
@@ -62,13 +69,13 @@ export default function LogsConsole({ employee }) {
     )
       .then(res => res.json())
       .then(data => {
-        if (reqId !== requestRef.current) return; // ❌ stale response
+        if (reqId !== requestRef.current) return; // avoid stale response
 
         const formatted = data.map((l, i) => ({
           id: i + 1,
           date: l.date,
           time: l.time,
-          type: l.type,
+          type: l.type,     // single source of truth
           source: l.source,
           dateKey: getDateKey(l.date),
         }));
@@ -120,31 +127,49 @@ export default function LogsConsole({ employee }) {
 
   /* Day Summary */
   const daySummary = useMemo(() => {
-    if (!summaryMode) return null;
+    if (!dayLogs.length) return null;
 
-    const ins = dayLogs.filter((l) => l.type === "IN");
-    const outs = dayLogs.filter((l) => l.type === "OUT");
+    const sorted = [...dayLogs].sort(
+      (a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time)
+    );
+
+    const ins = sorted.filter(l => l.type === "IN");
+    const outs = sorted.filter(l => l.type === "OUT");
 
     if (!ins.length || !outs.length) return null;
 
-    const firstIn = ins.reduce((a, b) =>
-      parseTimeToMinutes(a.time) < parseTimeToMinutes(b.time) ? a : b
-    );
+    const firstIn = ins[0];
+    const lastOut = outs[outs.length - 1];
 
-    const lastOut = outs.reduce((a, b) =>
-      parseTimeToMinutes(a.time) > parseTimeToMinutes(b.time) ? a : b
-    );
+    let workingMinutes = 0;
+    let breakMinutes = 0;
 
-    const diff =
-      parseTimeToMinutes(lastOut.time) -
-      parseTimeToMinutes(firstIn.time);
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const curr = sorted[i];
+      const next = sorted[i + 1];
+
+      if (curr.type === "IN" && next.type === "OUT") {
+        workingMinutes += minutesBetween(curr.time, next.time);
+      }
+
+      if (curr.type === "OUT" && next.type === "IN") {
+        breakMinutes += minutesBetween(curr.time, next.time);
+      }
+    }
 
     return {
       firstIn,
       lastOut,
-      duration: `${Math.floor(diff / 60)}h ${diff % 60}m`,
+      working: formatMinutes(workingMinutes),
+      breaks: formatMinutes(breakMinutes),
     };
-  }, [summaryMode, dayLogs]);
+  }, [dayLogs]);
+
+  useEffect(() => {
+  onDayStats?.(daySummary);
+}, [daySummary]);
+
+
 
   const logsToShow =
     summaryMode && daySummary
@@ -160,11 +185,11 @@ export default function LogsConsole({ employee }) {
         onTypeChange={handleTypeChange}
         summaryMode={summaryMode}
         onSummaryClick={handleSummaryToggle}
-        duration={daySummary?.duration}
+        duration={daySummary?.working}
       />
 
 
-      <div className="flex-1 min-h-0 bg-nero-900 border border-nero-700 rounded-xl flex">
+      <div className="flex-1 min-h-0 bg-nero-900 border border-nero-700 rounded-md flex">
         {logsToShow.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-nero-450">
             <IoDocumentTextOutline className="text-6xl mb-3 opacity-60" />

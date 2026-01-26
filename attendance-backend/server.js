@@ -94,28 +94,6 @@ function ensureDir(dir) {
   }
 }
 
-// Decide Punch Type
-function decidePunchType(employeeId, date) {
-  const last = db
-    .prepare(
-      `
-    SELECT type
-    FROM attendance_logs
-    WHERE employee_id = ?
-      AND date = ?
-    ORDER BY time DESC
-    LIMIT 1
-  `,
-    )
-    .get(employeeId, date);
-
-  // No previous log → IN
-  if (!last) return "IN";
-
-  // Toggle
-  return last.type === "IN" ? "OUT" : "IN";
-}
-
 // CSV Ingest State
 function getIngestStatePath() {
   const now = new Date();
@@ -221,7 +199,6 @@ function backupDatabaseIfNeeded() {
 /* CSV → Sqlite Ingest */
 function ingestCSVToDB() {
   // In-memory punch state for THIS ingest run
-  const punchState = new Map();
   const rows = readCSV();
   console.log("CSV rows read:", rows.length);
 
@@ -255,10 +232,10 @@ function ingestCSVToDB() {
   // Only ingest new rows
   const newRows = rows.slice(lastRow);
   newRows.sort((a, b) => {
-  if (a.Date !== b.Date) return a.Date.localeCompare(b.Date);
-  if (a.UserID !== b.UserID) return a.UserID.localeCompare(b.UserID);
-  return a.Time.localeCompare(b.Time);
-});
+    if (a.Date !== b.Date) return a.Date.localeCompare(b.Date);
+    if (a.UserID !== b.UserID) return a.UserID.localeCompare(b.UserID);
+    return a.Time.localeCompare(b.Time);
+  });
   if (!newRows.length) {
     saveIngestState({
       rows: rows.length,
@@ -281,41 +258,31 @@ function ingestCSVToDB() {
   `);
 
   db.transaction(() => {
+    const dayMap = new Map();
+
     for (const r of newRows) {
-      if (!r.UserID) continue;
+      if (!r.UserID || !r.Time) continue;
 
       insertEmployee.run(r.UserID, r.EmployeeName || r.UserID);
 
       const key = `${r.UserID}|${r.Date}`;
 
-      let lastType = punchState.get(key);
-
-      if (!lastType) {
-        const dbNext = decidePunchType(r.UserID, r.Date);
-        lastType = dbNext === "IN" ? "OUT" : "IN";
+      if (!dayMap.has(key)) {
+        dayMap.set(key, new Set());
       }
 
-      const punchType = lastType === "IN" ? "OUT" : "IN";
+      dayMap.get(key).add(r.Time); // dedupe SAME SECOND punches
+    }
 
-      // check duplicate BEFORE advancing state
-      const exists = db
-        .prepare(
-          `
-  SELECT 1 FROM attendance_logs
-  WHERE employee_id = ? AND date = ? AND time = ?
-`,
-        )
-        .get(r.UserID, r.Date, r.Time.slice(0, 5));
+    for (const [key, timeSet] of dayMap.entries()) {
+      const [employeeId, date] = key.split("|");
 
-      if (exists) {
-        // skip this row only
-        continue;
-      }
+      const times = Array.from(timeSet).sort(); // unique + sorted
 
-      // insert succeeded → NOW advance state
-      insertLog.run(r.UserID, r.Date, r.Time.slice(0, 5), punchType);
-
-      punchState.set(key, punchType);
+      times.forEach((time, index) => {
+        const type = index % 2 === 0 ? "IN" : "OUT";
+        insertLog.run(employeeId, date, time, type);
+      });
     }
   })();
 
@@ -393,6 +360,28 @@ app.use((req, res, next) => {
   next();
 });
 
+/* ========================= */
+/* MANUAL SYNC (SAFE) */
+/* ========================= */
+app.post("/internal/manual-sync", (req, res) => {
+  try {
+    logIngest("Manual sync triggered from UI", "INFO");
+
+    ingestCSVToDB(); // 🔥 SAME function used by auto + watcher
+
+    res.json({
+      ok: true,
+      syncedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logIngest(`Manual sync failed: ${err.message}`, "ERROR");
+    res.status(500).json({
+      ok: false,
+      error: err.message,
+    });
+  }
+});
+
 /* Logs Api (SQLITE) */
 app.get("/api/logs/:employeeId", (req, res) => {
   const employeeId = req.params.employeeId;
@@ -459,8 +448,8 @@ app.get("/api/attendance/:employeeId", (req, res) => {
         `
     SELECT
       date,
-      MIN(CASE WHEN type = 'IN'  THEN time END) AS firstIn,
-      MAX(CASE WHEN type = 'OUT' THEN time END) AS lastOut
+    MIN(CASE WHEN type='IN' THEN time END) AS firstIn,
+    MAX(CASE WHEN type='OUT' THEN time END) AS lastOut
     FROM attendance_logs
     WHERE employee_id = ?
       AND date BETWEEN ? AND ?
@@ -520,14 +509,14 @@ app.get("/api/attendance/:employeeId", (req, res) => {
     rows = db
       .prepare(
         `
-      SELECT
-        date,
-        MIN(CASE WHEN type = 'IN'  THEN time END) AS firstIn,
-        MAX(CASE WHEN type = 'OUT' THEN time END) AS lastOut
-      FROM attendance_logs
-      WHERE employee_id = ?
-      GROUP BY date
-      ORDER BY date
+        SELECT
+          date,
+        MIN(CASE WHEN type='IN' THEN time END) AS firstIn,
+        MAX(CASE WHEN type='OUT' THEN time END) AS lastOut
+        FROM attendance_logs
+        WHERE employee_id = ?
+          AND date BETWEEN ? AND ?
+        GROUP BY date
     `,
       )
       .all(employeeId);
@@ -568,7 +557,19 @@ app.get("/api/attendance/:employeeId", (req, res) => {
 
 /* Employees API (SQLITE) */
 app.get("/api/employees", (req, res) => {
-  const employees = db.prepare("SELECT id AS employeeId, name FROM employees").all();
+  const employees = db
+    .prepare(
+      `
+      SELECT 
+        id AS employeeId,
+        name
+      FROM employees
+      ORDER BY 
+        CAST(REPLACE(REPLACE(REPLACE(id, 'EMP', ''), 'FT', ''), '-', '') AS INTEGER),
+        id
+    `,
+    )
+    .all();
 
   res.json(employees);
 });

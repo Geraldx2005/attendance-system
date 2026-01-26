@@ -16,13 +16,13 @@ export default function LogsToolbar({
   duration,
 }) {
   const tabBtn =
-    "px-3 py-1.5 text-xs rounded-lg flex items-center gap-1 transition-colors";
+    "px-3 py-1.5 text-xs rounded-md flex items-center gap-1 transition-colors";
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 bg-nero-800/90 backdrop-blur border border-nero-700 rounded-2xl">
+    <div className="flex items-center gap-3 px-4 py-2.5 bg-nero-800/90 backdrop-blur border border-nero-700 rounded-md">
 
       {/* Date Filter */}
-      <div className="flex items-center gap-1 bg-nero-900/80 p-1 rounded-xl">
+      <div className="flex items-center gap-1 bg-nero-900/80 p-1 rounded-md">
         {["today", "yesterday"].map((v) => (
           <button
             key={v}
@@ -39,13 +39,13 @@ export default function LogsToolbar({
       </div>
 
       {/* Divider */}
-      <div className="h-6 w-px bg-nero-700/70" />
+      <div className="h-6 w-px bg-nero-900" />
 
       {/* Type Filter */}
-      <div className="flex items-center gap-1 bg-nero-900/80 p-1 rounded-xl">
+      <div className="flex items-center gap-1 bg-nero-900/80 p-1 rounded-md">
         <button
           onClick={() => onTypeChange("all")}
-          className={`${tabBtn} ${typeFilter === "all"
+          className={`${tabBtn} ${typeFilter === "all" && !summaryMode
             ? "bg-nero-700 text-nero-200"
             : "text-nero-500 hover:bg-nero-800"
             }`}
@@ -56,7 +56,7 @@ export default function LogsToolbar({
 
         <button
           onClick={() => onTypeChange("in")}
-          className={`${tabBtn} ${typeFilter === "in"
+          className={`${tabBtn} ${typeFilter === "in" && !summaryMode
             ? "bg-nero-700 text-emerald-400"
             : "text-nero-500 hover:bg-nero-800"
             }`}
@@ -67,7 +67,7 @@ export default function LogsToolbar({
 
         <button
           onClick={() => onTypeChange("out")}
-          className={`${tabBtn} ${typeFilter === "out"
+          className={`${tabBtn} ${typeFilter === "out" && !summaryMode
             ? "bg-nero-700 text-red-400"
             : "text-nero-500 hover:bg-nero-800"
             }`}
@@ -79,13 +79,13 @@ export default function LogsToolbar({
       </div>
 
       {/* Divider */}
-      <div className="h-6 w-px bg-nero-700/70" />
+      <div className="h-6 w-px bg-nero-900" />
 
       {/* Day Summary */}
-      <div className="flex items-center bg-nero-900/80 p-1 rounded-xl">
+      <div className="flex items-center bg-nero-900/80 p-1 rounded-md">
         <button
           onClick={onSummaryClick}
-          className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1 transition-colors
+          className={`px-3 py-1.5 text-xs rounded-md flex items-center gap-1 transition-colors
     ${summaryMode
               ? "bg-nero-700 text-nero-200"
               : "text-nero-500 hover:bg-nero-800"

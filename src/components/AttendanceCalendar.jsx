@@ -44,15 +44,31 @@ function renderAttendanceEvent(info) {
 
 /* Day Timeline Builder */
 function buildDayTimelineEvents(date, logs) {
-  return logs.map((l, i) => {
-    const start = new Date(`${l.date}T${l.time}:00`);
-    const end = new Date(start);
+  // IMPORTANT: If no logs, inject an invisible anchor event
+  if (!logs || logs.length === 0) {
+    const anchorStart = new Date(`${date}T08:00:00`);
+    const anchorEnd = new Date(anchorStart);
+    anchorEnd.setMinutes(anchorEnd.getMinutes() + 1);
 
-    // visual duration (prevents short-event issues)
+    return [
+      {
+        id: "anchor",
+        title: "",
+        start: anchorStart,
+        end: anchorEnd,
+        display: "background", // invisible but forces timeline render
+        backgroundColor: "transparent",
+      },
+    ];
+  }
+
+  return logs.map((l, i) => {
+    const start = new Date(`${l.date}T${l.time}`);
+    const end = new Date(start);
     end.setMinutes(end.getMinutes() + 30);
 
     return {
-      id: i,
+      id: `${l.date}-${l.time}-${l.type}`,
       title:
         l.type === "IN"
           ? `Check In · ${to12Hour(l.time)}`
@@ -84,44 +100,48 @@ export default function AttendanceCalendar({ employee, onSummary }) {
   useEffect(() => {
     if (!employee) return;
 
-    setEvents([]); // safe to reset events on employee change (avoid stale data)
-    const reqId = ++requestRef.current; // increment request version
+    const reqId = ++requestRef.current;
 
+    // ---------------- DAY VIEW ----------------
     if (currentView === "timeGridDay" && currentDate) {
       apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
         .then(res => res.json())
         .then(logs => {
-          if (reqId !== requestRef.current) return; // avoids stale response
+          if (reqId !== requestRef.current) return;
           setEvents(buildDayTimelineEvents(currentDate, logs));
         })
         .catch(console.error);
 
+      // ---------------- MONTH VIEW ----------------
     } else {
-      apiFetch(
-        `/api/attendance/${employee.employeeId}?month=${currentMonth}`
-      )
+      apiFetch(`/api/attendance/${employee.employeeId}?month=${currentMonth}`)
         .then(res => res.json())
         .then(data => {
-          if (reqId !== requestRef.current) return; // avoids stale response
-          // -------- Attendance Summary --------
+          if (reqId !== requestRef.current) return;
+
+          // ATTENDANCE SUMMARY
           let present = 0;
           let halfDay = 0;
           let absent = 0;
 
-          for (const d of data) {
+          data.forEach(d => {
             if (d.status === "Present") present++;
             else if (d.status === "Half Day") halfDay++;
             else if (d.status === "Absent") absent++;
-          }
+          });
+
+          // 2 half days = 1 present
+          const totalPresent = present + halfDay * 0.5;
 
           onSummary?.({
             present,
             halfDay,
             absent,
-            totalPresent: present + halfDay * 0.5,
-            totalDays: data.length,
+            totalPresent,
           });
 
+
+          // CALENDAR EVENTS
           setEvents(
             data.map(d => ({
               title: d.status === "Pending" ? "" : d.status,
@@ -143,6 +163,7 @@ export default function AttendanceCalendar({ employee, onSummary }) {
         .catch(console.error);
     }
   }, [employee, currentView, currentDate, currentMonth]);
+
 
   /* IPC Invalidation */
   useEffect(() => {
@@ -233,18 +254,18 @@ export default function AttendanceCalendar({ employee, onSummary }) {
           setCurrentView(arg.view.type);
 
           if (arg.view.type === "timeGridDay") {
-            setCurrentDate(arg.startStr.slice(0, 10));
+            const date = arg.startStr.slice(0, 10);
+            setCurrentDate(date);
+
+            // Force Full Calendar to Repaint (Electron fix)
+            requestAnimationFrame(() => {
+              calendarRef.current?.getApi()?.updateSize();
+            });
           } else {
             setCurrentDate(null);
-
-            // 👇 IMPORTANT: track visible month
-            const month = arg.startStr.slice(0, 7);
-            setCurrentMonth(month);
+            setCurrentMonth(arg.startStr.slice(0, 7));
           }
         }}
-
-
-
       />
     </div>
   );
