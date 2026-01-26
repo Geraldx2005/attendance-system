@@ -6,6 +6,8 @@ import { fileURLToPath } from "url";
 import { parse } from "csv-parse/sync";
 import db from "./db.js";
 
+let ingestRunning = false;
+
 /* -------------------- */
 /* SERVER CONSTANTS */
 /* -------------------- */
@@ -198,105 +200,124 @@ function backupDatabaseIfNeeded() {
 
 /* CSV → Sqlite Ingest */
 function ingestCSVToDB() {
-  // In-memory punch state for THIS ingest run
-  const rows = readCSV();
-  console.log("CSV rows read:", rows.length);
-
-  // No CSV / empty CSV
-  if (!rows.length) return;
-
-  // Read last ingested row count (per-month)
-  const csvFile = getCurrentMonthCSV();
-  const stats = fs.statSync(csvFile);
-
-  let { rows: lastRow, fileSize, mtimeMs } = getIngestState();
-
-  // MUTATION DETECTION
-  const fileShrank = stats.size < fileSize;
-  const fileRewritten = stats.mtimeMs !== mtimeMs;
-
-  if (fileShrank || fileRewritten) {
-    logIngest(`CSV mutation detected (shrank=${fileShrank}, rewritten=${fileRewritten}) → reset`, "WARN");
-    lastRow = 0;
+  // GLOBAL INGEST LOCK (auto + manual + full)
+  if (ingestRunning) {
+    logIngest("Ingest already running → skipped", "WARN");
+    return;
   }
 
-  // SELF-HEALING LOGIC
-  // If DB is empty but ingest state exists, reset ingest state
-  const dbCount = db.prepare("SELECT COUNT(*) AS c FROM attendance_logs").get().c;
+  ingestRunning = true;
 
-  if (dbCount === 0 && lastRow > 0) {
-    console.warn("DB empty but ingest state exists → resetting ingest state");
-    lastRow = 0;
-  }
+  try {
+    // In-memory punch state for THIS ingest run
+    const rows = readCSV();
+    console.log("CSV rows read:", rows.length);
 
-  // Only ingest new rows
-  const newRows = rows.slice(lastRow);
-  newRows.sort((a, b) => {
-    if (a.Date !== b.Date) return a.Date.localeCompare(b.Date);
-    if (a.UserID !== b.UserID) return a.UserID.localeCompare(b.UserID);
-    return a.Time.localeCompare(b.Time);
-  });
-  if (!newRows.length) {
+    // No CSV / empty CSV
+    if (!rows.length) return;
+
+    // Read last ingested row count (per-month)
+    const csvFile = getCurrentMonthCSV();
+    const stats = fs.statSync(csvFile);
+
+    let { rows: lastRow, fileSize, mtimeMs } = getIngestState();
+
+    // MUTATION DETECTION
+    const fileShrank = stats.size < fileSize;
+    const fileRewritten = stats.mtimeMs !== mtimeMs;
+
+    if (fileShrank || fileRewritten) {
+      logIngest(`CSV mutation detected (shrank=${fileShrank}, rewritten=${fileRewritten}) → reset`, "WARN");
+      lastRow = 0;
+    }
+
+    // SELF-HEALING LOGIC
+    const dbCount = db.prepare("SELECT COUNT(*) AS c FROM attendance_logs").get().c;
+
+    if (dbCount === 0 && lastRow > 0) {
+      logIngest("DB empty but ingest state exists → resetting ingest state", "WARN");
+      lastRow = 0;
+    }
+
+    // Only ingest new rows
+    const newRows = rows.slice(lastRow);
+
+    newRows.sort((a, b) => {
+      if (a.Date !== b.Date) return a.Date.localeCompare(b.Date);
+      if (a.UserID !== b.UserID) return a.UserID.localeCompare(b.UserID);
+      return a.Time.localeCompare(b.Time);
+    });
+
+    if (!newRows.length) {
+      saveIngestState({
+        rows: rows.length,
+        fileSize: stats.size,
+        mtimeMs: stats.mtimeMs,
+      });
+
+      logIngest(`No new rows. lastRow=${lastRow}, totalRows=${rows.length}`, "INFO");
+      return;
+    }
+
+    const insertEmployee = db.prepare(`
+      INSERT OR IGNORE INTO employees (id, name)
+      VALUES (?, ?)
+    `);
+
+    const insertLog = db.prepare(`
+      INSERT OR IGNORE INTO attendance_logs
+      (employee_id, date, time, type, source)
+      VALUES (?, ?, ?, ?, 'Biometric')
+    `);
+
+    db.transaction(() => {
+      const dayMap = new Map();
+
+      for (const r of newRows) {
+        if (!r.UserID || !r.Time) continue;
+
+        insertEmployee.run(r.UserID, r.EmployeeName || r.UserID);
+
+        const key = `${r.UserID}|${r.Date}`;
+
+        if (!dayMap.has(key)) {
+          dayMap.set(key, new Set());
+        }
+
+        // dedupe SAME SECOND punches
+        dayMap.get(key).add(r.Time);
+      }
+
+      for (const [key, timeSet] of dayMap.entries()) {
+        const [employeeId, date] = key.split("|");
+
+        const times = Array.from(timeSet).sort();
+
+        times.forEach((time, index) => {
+          const type = index % 2 === 0 ? "IN" : "OUT";
+          insertLog.run(employeeId, date, time, type);
+        });
+      }
+    })();
+
+    logIngest(`Ingest completed. Inserted=${newRows.length}, totalRows=${rows.length}`, "INFO");
+
+    // Save new ingest checkpoint
     saveIngestState({
       rows: rows.length,
       fileSize: stats.size,
       mtimeMs: stats.mtimeMs,
     });
-    logIngest(`No new rows. lastRow=${lastRow}, totalRows=${rows.length}`);
-    return;
+
+    // Notify Electron UI
+    notifyChange();
+  } catch (err) {
+    logIngest(`Ingest failed: ${err.message}`, "ERROR");
+    throw err;
+  } finally {
+    // 🔓 ALWAYS RELEASE LOCK
+    ingestRunning = false;
   }
-
-  const insertEmployee = db.prepare(`
-    INSERT OR IGNORE INTO employees (id, name)
-    VALUES (?, ?)
-  `);
-
-  const insertLog = db.prepare(`
-    INSERT OR IGNORE INTO attendance_logs
-    (employee_id, date, time, type, source)
-    VALUES (?, ?, ?, ?, 'Biometric')
-  `);
-
-  db.transaction(() => {
-    const dayMap = new Map();
-
-    for (const r of newRows) {
-      if (!r.UserID || !r.Time) continue;
-
-      insertEmployee.run(r.UserID, r.EmployeeName || r.UserID);
-
-      const key = `${r.UserID}|${r.Date}`;
-
-      if (!dayMap.has(key)) {
-        dayMap.set(key, new Set());
-      }
-
-      dayMap.get(key).add(r.Time); // dedupe SAME SECOND punches
-    }
-
-    for (const [key, timeSet] of dayMap.entries()) {
-      const [employeeId, date] = key.split("|");
-
-      const times = Array.from(timeSet).sort(); // unique + sorted
-
-      times.forEach((time, index) => {
-        const type = index % 2 === 0 ? "IN" : "OUT";
-        insertLog.run(employeeId, date, time, type);
-      });
-    }
-  })();
-
-  logIngest(`Ingest completed. Inserted=${newRows.length}, totalRows=${rows.length}`);
-
-  // Save new ingest checkpoint
-  saveIngestState({
-    rows: rows.length,
-    fileSize: stats.size,
-    mtimeMs: stats.mtimeMs,
-  });
-
-  // Notify Electron UI
-  notifyChange();
 }
 
 /* CSV File Watcher (Debounced) */

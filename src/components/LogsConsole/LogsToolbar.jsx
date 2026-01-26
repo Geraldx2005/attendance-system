@@ -95,11 +95,12 @@ export default function LogsToolbar({
           Day summary
         </button>
 
-        {summaryMode && duration && (
+        {summaryMode && (
           <div className="px-2 py-1 text-[12px] text-nero-300 bg-nero-800 rounded-md ml-1">
-            {duration}
+            {duration || "0h 0m"}
           </div>
         )}
+
       </div>
 
 

@@ -5,6 +5,7 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import { to12Hour } from "../utils/time";
 import { apiFetch } from "../utils/api";
+import { calcDayStats } from "../utils/attendanceStats";
 
 /* Helpers */
 function toMinutes(time) {
@@ -84,7 +85,7 @@ function buildDayTimelineEvents(date, logs) {
 }
 
 /* Component */
-export default function AttendanceCalendar({ employee, onSummary }) {
+export default function AttendanceCalendar({ employee, onSummary, onViewChange, onDayStats, }) {
   const [events, setEvents] = useState([]);
 
   const [currentView, setCurrentView] = useState("dayGridMonth");
@@ -95,6 +96,7 @@ export default function AttendanceCalendar({ employee, onSummary }) {
 
   const calendarRef = useRef(null);
   const requestRef = useRef(0);
+  const invalidateTimer = useRef(null);
 
   /* Initial Load */
   useEffect(() => {
@@ -109,6 +111,8 @@ export default function AttendanceCalendar({ employee, onSummary }) {
         .then(logs => {
           if (reqId !== requestRef.current) return;
           setEvents(buildDayTimelineEvents(currentDate, logs));
+
+          onDayStats?.(calcDayStats(logs));
         })
         .catch(console.error);
 
@@ -118,6 +122,8 @@ export default function AttendanceCalendar({ employee, onSummary }) {
         .then(res => res.json())
         .then(data => {
           if (reqId !== requestRef.current) return;
+
+          onDayStats?.(null);
 
           // ATTENDANCE SUMMARY
           let present = 0;
@@ -169,47 +175,58 @@ export default function AttendanceCalendar({ employee, onSummary }) {
   useEffect(() => {
     if (!window.ipc || !employee) return;
 
-    const handler = ({ employeeId }) => {
+    const handler = ({ employeeId, source }) => {
+      console.log("Attendance refreshed via:", source || "unknown");
+
       if (employeeId && employee.employeeId !== employeeId) return;
 
-      const reqId = ++requestRef.current; // invalidate old requests
+      // debounce multiple invalidations
+      if (invalidateTimer.current) return;
 
-      if (currentView === "timeGridDay" && currentDate) {
-        apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
-          .then(res => res.json())
-          .then(logs => {
-            if (reqId !== requestRef.current) return;
-            setEvents(buildDayTimelineEvents(currentDate, logs));
-          })
-          .catch(console.error);
-      } else {
-        apiFetch(
-          `/api/attendance/${employee.employeeId}?month=${currentMonth}`
-        )
-          .then(res => res.json())
-          .then(data => {
-            if (reqId !== requestRef.current) return;
+      invalidateTimer.current = setTimeout(() => {
+        invalidateTimer.current = null;
 
-            setEvents(
-              data.map(d => ({
-                title: d.status === "Pending" ? "" : d.status,
-                start: d.date,
-                firstIn: d.firstIn,
-                lastOut: d.lastOut,
-                backgroundColor:
-                  d.status === "Present"
-                    ? "#2e7d32"
-                    : d.status === "Half Day"
-                      ? "#b7791f"
-                      : d.status === "Absent"
-                        ? "#8b1d1d"
-                        : "transparent",
-                borderColor: "transparent",
-              }))
-            );
-          })
-          .catch(console.error);
-      }
+        const reqId = ++requestRef.current;
+
+        if (currentView === "timeGridDay" && currentDate) {
+          apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
+            .then(res => res.json())
+            .then(logs => {
+              if (reqId !== requestRef.current) return;
+              setEvents(buildDayTimelineEvents(currentDate, logs));
+
+              onDayStats?.(calcDayStats(logs));
+            })
+            .catch(console.error);
+        } else {
+          apiFetch(`/api/attendance/${employee.employeeId}?month=${currentMonth}`)
+            .then(res => res.json())
+            .then(data => {
+              if (reqId !== requestRef.current) return;
+
+              onDayStats?.(null);
+
+              setEvents(
+                data.map(d => ({
+                  title: d.status === "Pending" ? "" : d.status,
+                  start: d.date,
+                  firstIn: d.firstIn,
+                  lastOut: d.lastOut,
+                  backgroundColor:
+                    d.status === "Present"
+                      ? "#2e7d32"
+                      : d.status === "Half Day"
+                        ? "#b7791f"
+                        : d.status === "Absent"
+                          ? "#8b1d1d"
+                          : "transparent",
+                  borderColor: "transparent",
+                }))
+              );
+            })
+            .catch(console.error);
+        }
+      }, 300);
     };
 
     window.ipc.onAttendanceInvalidated(handler);
@@ -252,12 +269,12 @@ export default function AttendanceCalendar({ employee, onSummary }) {
         /* View Change Handler */
         datesSet={(arg) => {
           setCurrentView(arg.view.type);
+          onViewChange?.(arg.view.type);
 
           if (arg.view.type === "timeGridDay") {
             const date = arg.startStr.slice(0, 10);
             setCurrentDate(date);
 
-            // Force Full Calendar to Repaint (Electron fix)
             requestAnimationFrame(() => {
               calendarRef.current?.getApi()?.updateSize();
             });
@@ -266,6 +283,7 @@ export default function AttendanceCalendar({ employee, onSummary }) {
             setCurrentMonth(arg.startStr.slice(0, 7));
           }
         }}
+
       />
     </div>
   );

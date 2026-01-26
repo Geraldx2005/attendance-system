@@ -63,11 +63,7 @@ function notifyAttendanceInvalidation(payload) {
 
 /* Backend */
 function startBackend() {
-  const backendPath = path.join(
-    process.cwd(),
-    "attendance-backend",
-    "server.js"
-  );
+  const backendPath = path.join(process.cwd(), "attendance-backend", "server.js");
 
   backendProcess = spawn("node", [backendPath], {
     env: {
@@ -139,13 +135,49 @@ ipcMain.handle("manual-sync", async () => {
   return new Promise((resolve) => {
     execFile(SERVICE_EXE, ["manual"], { windowsHide: true }, (error) => {
       if (error) {
-        resolve({ ok: false, error: error.message });
-      } else {
-        resolve({ ok: true, syncedAt: new Date().toISOString() });
+        let msg = "Manual sync failed";
+
+        if (error.code === "ENOENT") {
+          msg = "Sync service not found";
+        } else if (error.message?.toLowerCase().includes("timeout")) {
+          msg = "Device not reachable";
+        }
+
+        return resolve({ ok: false, error: msg });
       }
+
+      // Auto Invalidate Attendance on SUCCESS
+      notifyAttendanceInvalidation({ source: "manual-sync" });
+
+      resolve({ ok: true, syncedAt: new Date().toISOString() });
     });
   });
 });
+
+/* Full Sync */
+ipcMain.handle("full-sync", async () => {
+  return new Promise((resolve) => {
+    execFile(SERVICE_EXE, ["full"], { windowsHide: true }, (error) => {
+      if (error) {
+        let msg = "Full sync failed";
+
+        if (error.code === "ENOENT") {
+          msg = "Sync service not found";
+        } else if (error.message?.toLowerCase().includes("timeout")) {
+          msg = "Device not reachable";
+        }
+
+        return resolve({ ok: false, error: msg });
+      }
+
+      // Auto Invalidate Attendance on SUCCESS
+      notifyAttendanceInvalidation({ source: "full-sync" });
+
+      resolve({ ok: true, syncedAt: new Date().toISOString() });
+    });
+  });
+});
+
 
 /* Auto Sync Time */
 ipcMain.handle("get-auto-sync-time", () => {

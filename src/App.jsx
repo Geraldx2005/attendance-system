@@ -11,6 +11,7 @@ import { apiFetch } from "./utils/api";
 import { to12Hour } from "./utils/time";
 import Reports from "./components/Reports";
 import { FaUserEdit } from "react-icons/fa";
+import ToastHost from "./utils/ToastHost";
 
 // Icons
 import {
@@ -40,6 +41,9 @@ function App() {
 
   const [logsDayStats, setLogsDayStats] = useState(null);
 
+  const [attendanceView, setAttendanceView] = useState("dayGridMonth");
+  const [attendanceDayStats, setAttendanceDayStats] = useState(null);
+
   const fetchEmployees = () => {
     apiFetch("/api/employees")
       .then(res => res.json())
@@ -66,7 +70,6 @@ function App() {
 
     return `EMP${num.padStart(4, "0")}`;
   }
-
 
   /* Load Employees from CSV */
   useEffect(() => {
@@ -142,9 +145,9 @@ function App() {
 
         <button
           onClick={() => setActiveView("ATTENDANCE")}
-          className={`w-9 h-9 rounded-md flex items-center justify-center
+          className={`w-12 h-12 rounded-full flex items-center justify-center
         ${activeView === "ATTENDANCE"
-              ? "bg-nero-700 text-nero-300"
+              ? "bg-nero-700 text-nero-300 text-lg"
               : "text-nero-400 hover:bg-nero-700"}`}
         >
           <IoCalendarNumberSharp />
@@ -152,9 +155,9 @@ function App() {
 
         <button
           onClick={() => setActiveView("LOGS")}
-          className={`w-9 h-9 rounded-md flex items-center justify-center
+          className={`w-12 h-12 rounded-full flex items-center justify-center
         ${activeView === "LOGS"
-              ? "bg-nero-700 text-nero-300"
+              ? "bg-nero-700 text-nero-300 text-lg"
               : "text-nero-400 hover:bg-nero-700"}`}
         >
           <IoBook />
@@ -162,9 +165,9 @@ function App() {
 
         <button
           onClick={() => setActiveView("REPORTS")}
-          className={`w-9 h-9 rounded-md flex items-center justify-center
+          className={`w-12 h-12 rounded-full flex items-center justify-center
     ${activeView === "REPORTS"
-              ? "bg-nero-700 text-nero-300"
+              ? "bg-nero-700 text-nero-300 text-lg"
               : "text-nero-400 hover:bg-nero-700"}`}
           title="Reports"
         >
@@ -184,7 +187,7 @@ function App() {
 
       {/* -------------------------------- Main -------------------------------- */}
       <div className="flex-1 flex">
-        {/* Employee List */}
+
         {/* Employee List */}
         {activeView !== "REPORTS" && (
           <div className="w-72 bg-nero-900 flex flex-col">
@@ -228,7 +231,6 @@ function App() {
           </div>
         )}
 
-
         {/* Content */}
         <div className="flex-1 bg-nero-900 overflow-hidden flex flex-col">
 
@@ -249,7 +251,6 @@ function App() {
               </div>
             </>
           )}
-
 
           {/* EMPTY STATE */}
           {activeView !== "REPORTS" && !selectedEmployee && (
@@ -276,7 +277,7 @@ function App() {
                   <button
                     onClick={() => setMapOpen(true)}
                     title="Edit employee name"
-                    className="text-nero-400 hover:text-nero-200"
+                    className="text-nero-400 hover:text-nero-200 cursor-pointer"
                   >
                     <FaUserEdit size={14} />
                   </button>
@@ -288,36 +289,69 @@ function App() {
               </div>
 
               <div className="px-3 pt-2 pb-0 flex flex-col justify-center">
-
                 <div className="w-full bg-nero-700 px-3 rounded-md flex items-center justify-between">
 
-                  {attendanceSummary && (
-                    <div className="flex gap-3 text-[13px]">
-                      <span className="text-emerald-300">
-                        Present: {attendanceSummary.present}
-                      </span>
+                  <div className="flex gap-3 text-[13px]">
 
-                      <span className="text-amber-200">
-                        Half day: {attendanceSummary.halfDay}
-                      </span>
+                    {/* MONTH VIEW SUMMARY */}
+                    {attendanceView === "dayGridMonth" && (
+                      <>
+                        <span className="text-emerald-300">
+                          Present: {attendanceSummary?.present ?? 0}
+                        </span>
 
-                      <span className="text-red-300">
-                        Absent: {attendanceSummary.absent}
-                      </span>
+                        <span className="text-amber-200">
+                          Half day: {attendanceSummary?.halfDay ?? 0}
+                        </span>
 
-                      <span className="text-nero-300 border-l border-nero-500 pl-3">
-                        Total present: {attendanceSummary.totalPresent}
-                      </span>
-                    </div>
-                  )}
+                        <span className="text-red-300">
+                          Absent: {attendanceSummary?.absent ?? 0}
+                        </span>
+
+                        <span className="text-nero-300 border-l border-nero-500 pl-3">
+                          Total present: {attendanceSummary?.totalPresent ?? 0}
+                        </span>
+                      </>
+                    )}
+
+                    {/* DAY VIEW STATS */}
+                    {attendanceView === "timeGridDay" && (
+                      <>
+                        <span className="text-emerald-300">
+                          Working: {attendanceDayStats?.working || "0h 0m"}
+                        </span>
+
+                        <span className="text-red-300">
+                          Break: {attendanceDayStats?.breaks || "0h 0m"}
+                        </span>
+
+                        <span className="text-nero-300 border-l border-nero-500 pl-3">
+                          In: {attendanceDayStats?.firstIn
+                            ? to12Hour(attendanceDayStats.firstIn.time)
+                            : "--"}
+                        </span>
+
+                        <span className="text-nero-300">
+                          Out: {attendanceDayStats?.lastOut
+                            ? to12Hour(attendanceDayStats.lastOut.time)
+                            : "--"}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
 
                   <ManualSyncButton />
                 </div>
               </div>
 
-
               <div className="flex-1 p-3">
-                <AttendanceCalendar employee={selectedEmployee} onSummary={setAttendanceSummary} />
+                <AttendanceCalendar
+                  employee={selectedEmployee}
+                  onSummary={setAttendanceSummary}
+                  onViewChange={setAttendanceView}
+                  onDayStats={setAttendanceDayStats}
+                />
               </div>
             </>
           )}
@@ -334,7 +368,7 @@ function App() {
                   <button
                     onClick={() => setMapOpen(true)}
                     title="Edit employee name"
-                    className="text-nero-400 hover:text-nero-200"
+                    className="text-nero-400 hover:text-nero-200 cursor-pointer"
                   >
                     <FaUserEdit size={14} />
                   </button>
@@ -349,26 +383,23 @@ function App() {
 
                 <div className="w-full bg-nero-700 px-3 rounded-md flex items-center justify-between">
 
-                  {logsDayStats && (
-                    <div className="flex gap-3 text-[13px]">
-                      <span className="text-emerald-300">
-                        Working: {logsDayStats.working}
-                      </span>
+                  <div className="flex gap-3 text-[13px]">
+                    <span className="text-emerald-300">
+                      Working: {logsDayStats?.working || "0h 0m"}
+                    </span>
 
-                      <span className="text-red-300">
-                        Break: {logsDayStats.breaks}
-                      </span>
+                    <span className="text-red-300">
+                      Break: {logsDayStats?.breaks || "0h 0m"}
+                    </span>
 
-                      <span className="text-nero-300 border-l border-nero-500 pl-3">
-                        In: {to12Hour(logsDayStats.firstIn?.time)}
-                      </span>
+                    <span className="text-nero-300 border-l border-nero-500 pl-3">
+                      In: {logsDayStats?.firstIn ? to12Hour(logsDayStats.firstIn.time) : "--"}
+                    </span>
 
-                      <span className="text-nero-300">
-                        Out: {to12Hour(logsDayStats.lastOut?.time)}
-                      </span>
-                    </div>
-                  )}
-
+                    <span className="text-nero-300">
+                      Out: {logsDayStats?.lastOut ? to12Hour(logsDayStats.lastOut.time) : "--"}
+                    </span>
+                  </div>
 
                   <ManualSyncButton />
                 </div>
@@ -380,8 +411,9 @@ function App() {
             </>
           )}
         </div>
-
       </div>
+
+      <ToastHost />
     </main>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import LogsToolbar from "./LogsToolbar";
 import LogRow from "./LogRow";
 import { apiFetch } from "../../utils/api";
+import { calcDayStats } from "../../utils/attendanceStats";
 import { IoDocumentTextOutline } from "react-icons/io5";
 
 /* Helpers */
@@ -34,6 +35,7 @@ export default function LogsConsole({ employee, onDayStats }) {
   const [summaryMode, setSummaryMode] = useState(false);
 
   const requestRef = useRef(0);
+  const invalidateTimer = useRef(null);
 
   const handleTypeChange = (type) => {
     setTypeFilter(type);
@@ -99,15 +101,28 @@ export default function LogsConsole({ employee, onDayStats }) {
   useEffect(() => {
     if (!window.ipc || !employee) return;
 
-    const handler = ({ employeeId }) => {
+    const handler = ({ employeeId, source }) => {
+      console.log("Logs refreshed via:", source || "unknown");
+
       if (employeeId && employee.employeeId !== employeeId) return;
-      loadLogs();
+
+      // debounce multiple invalidations
+      if (invalidateTimer.current) return;
+
+      invalidateTimer.current = setTimeout(() => {
+        invalidateTimer.current = null;
+        loadLogs();
+      }, 300);
     };
 
     window.ipc.onAttendanceInvalidated(handler);
 
     return () => {
       window.ipc.offAttendanceInvalidated(handler);
+      if (invalidateTimer.current) {
+        clearTimeout(invalidateTimer.current);
+        invalidateTimer.current = null;
+      }
     };
   }, [employee]);
 
@@ -128,48 +143,12 @@ export default function LogsConsole({ employee, onDayStats }) {
   /* Day Summary */
   const daySummary = useMemo(() => {
     if (!dayLogs.length) return null;
-
-    const sorted = [...dayLogs].sort(
-      (a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time)
-    );
-
-    const ins = sorted.filter(l => l.type === "IN");
-    const outs = sorted.filter(l => l.type === "OUT");
-
-    if (!ins.length || !outs.length) return null;
-
-    const firstIn = ins[0];
-    const lastOut = outs[outs.length - 1];
-
-    let workingMinutes = 0;
-    let breakMinutes = 0;
-
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const curr = sorted[i];
-      const next = sorted[i + 1];
-
-      if (curr.type === "IN" && next.type === "OUT") {
-        workingMinutes += minutesBetween(curr.time, next.time);
-      }
-
-      if (curr.type === "OUT" && next.type === "IN") {
-        breakMinutes += minutesBetween(curr.time, next.time);
-      }
-    }
-
-    return {
-      firstIn,
-      lastOut,
-      working: formatMinutes(workingMinutes),
-      breaks: formatMinutes(breakMinutes),
-    };
+    return calcDayStats(dayLogs);
   }, [dayLogs]);
 
   useEffect(() => {
-  onDayStats?.(daySummary);
-}, [daySummary]);
-
-
+    onDayStats?.(daySummary);
+  }, [daySummary]);
 
   const logsToShow =
     summaryMode && daySummary

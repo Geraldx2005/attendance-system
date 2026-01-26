@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("ipc", {
   },
 
   runManualSync: () => ipcRenderer.invoke("manual-sync"),
+  runFullSync: () => ipcRenderer.invoke("full-sync"),
   getAutoSyncTime: () => ipcRenderer.invoke("get-auto-sync-time"),
 });
 
