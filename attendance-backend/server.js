@@ -384,11 +384,11 @@ app.use((req, res, next) => {
 /* ========================= */
 /* MANUAL SYNC (SAFE) */
 /* ========================= */
-app.post("/internal/manual-sync", (req, res) => {
+app.post("/internal/manual-sync", async (req, res) => {
   try {
     logIngest("Manual sync triggered from UI", "INFO");
 
-    ingestCSVToDB(); // 🔥 SAME function used by auto + watcher
+    await Promise.resolve().then(() => ingestCSVToDB());
 
     res.json({
       ok: true,

@@ -17,6 +17,11 @@
   animation: progress 1.2s infinite linear;
 }
 
+select:focus,
+select:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
 
 /* =========================================================
    THEME VARIABLES (NERO)

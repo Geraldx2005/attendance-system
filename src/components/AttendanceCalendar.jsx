@@ -93,14 +93,17 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
   const [currentMonth, setCurrentMonth] = useState(
     new Date().toISOString().slice(0, 7)
   );
+  const [, forceRerender] = useState(0);
 
   const calendarRef = useRef(null);
   const requestRef = useRef(0);
-  const invalidateTimer = useRef(null);
+  const monthReadyRef = useRef(false);
 
   /* Initial Load */
   useEffect(() => {
     if (!employee) return;
+
+    monthReadyRef.current = false;
 
     const reqId = ++requestRef.current;
 
@@ -146,7 +149,6 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
             totalPresent,
           });
 
-
           // CALENDAR EVENTS
           setEvents(
             data.map(d => ({
@@ -165,6 +167,8 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
               borderColor: "transparent",
             }))
           );
+          monthReadyRef.current = true;
+          forceRerender(v => v + 1);
         })
         .catch(console.error);
     }
@@ -175,63 +179,54 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
   useEffect(() => {
     if (!window.ipc || !employee) return;
 
-    const handler = ({ employeeId, source }) => {
-      console.log("Attendance refreshed via:", source || "unknown");
-
+    const handler = ({ employeeId }) => {
+      // Ignore other employees
       if (employeeId && employee.employeeId !== employeeId) return;
 
-      // debounce multiple invalidations
-      if (invalidateTimer.current) return;
+      // Trigger normal refetch
+      const reqId = ++requestRef.current;
 
-      invalidateTimer.current = setTimeout(() => {
-        invalidateTimer.current = null;
+      if (currentView === "timeGridDay" && currentDate) {
+        apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
+          .then(res => res.json())
+          .then(logs => {
+            if (reqId !== requestRef.current) return;
+            setEvents(buildDayTimelineEvents(currentDate, logs));
+            onDayStats?.(calcDayStats(logs));
+          });
+      } else {
+        apiFetch(`/api/attendance/${employee.employeeId}?month=${currentMonth}`)
+          .then(res => res.json())
+          .then(data => {
+            if (reqId !== requestRef.current) return;
 
-        const reqId = ++requestRef.current;
-
-        if (currentView === "timeGridDay" && currentDate) {
-          apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
-            .then(res => res.json())
-            .then(logs => {
-              if (reqId !== requestRef.current) return;
-              setEvents(buildDayTimelineEvents(currentDate, logs));
-
-              onDayStats?.(calcDayStats(logs));
-            })
-            .catch(console.error);
-        } else {
-          apiFetch(`/api/attendance/${employee.employeeId}?month=${currentMonth}`)
-            .then(res => res.json())
-            .then(data => {
-              if (reqId !== requestRef.current) return;
-
-              onDayStats?.(null);
-
-              setEvents(
-                data.map(d => ({
-                  title: d.status === "Pending" ? "" : d.status,
-                  start: d.date,
-                  firstIn: d.firstIn,
-                  lastOut: d.lastOut,
-                  backgroundColor:
-                    d.status === "Present"
-                      ? "#2e7d32"
-                      : d.status === "Half Day"
-                        ? "#b7791f"
-                        : d.status === "Absent"
-                          ? "#8b1d1d"
-                          : "transparent",
-                  borderColor: "transparent",
-                }))
-              );
-            })
-            .catch(console.error);
-        }
-      }, 300);
+            onDayStats?.(null);
+            setEvents(
+              data.map(d => ({
+                title: d.status === "Pending" ? "" : d.status,
+                start: d.date,
+                firstIn: d.firstIn,
+                lastOut: d.lastOut,
+                backgroundColor:
+                  d.status === "Present"
+                    ? "#2e7d32"
+                    : d.status === "Half Day"
+                      ? "#b7791f"
+                      : d.status === "Absent"
+                        ? "#8b1d1d"
+                        : "transparent",
+                borderColor: "transparent",
+              }))
+            );
+            monthReadyRef.current = true;
+            forceRerender(v => v + 1);
+          });
+      }
     };
 
     window.ipc.onAttendanceInvalidated(handler);
     return () => window.ipc.offAttendanceInvalidated(handler);
-  }, [employee, currentView, currentDate]);
+  }, [employee, currentView, currentDate, currentMonth]);
 
   return (
     <div className="h-full rounded-lg overflow-hidden border border-nero-700 bg-nero-900">
@@ -255,9 +250,12 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
         displayEventTime={false}
         slotMinTime="06:00:00"
         slotMaxTime="22:00:00"
-
         height="100%"
-        events={events}
+        events={
+          currentView === "dayGridMonth" && !monthReadyRef.current
+            ? []
+            : events
+        }
 
         /* Month-only custom render */
         eventContent={(arg) =>
@@ -272,6 +270,7 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
           onViewChange?.(arg.view.type);
 
           if (arg.view.type === "timeGridDay") {
+            monthReadyRef.current = false;
             const date = arg.startStr.slice(0, 10);
             setCurrentDate(date);
 
@@ -279,6 +278,7 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
               calendarRef.current?.getApi()?.updateSize();
             });
           } else {
+            monthReadyRef.current = false;
             setCurrentDate(null);
             setCurrentMonth(arg.startStr.slice(0, 7));
           }

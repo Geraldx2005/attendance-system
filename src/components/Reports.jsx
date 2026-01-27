@@ -3,32 +3,18 @@ import { MaterialReactTable } from "material-react-table";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import SettingsDialog from "./SettingsDialog";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { apiFetch } from "../utils/api";
 
-/* MOCK DATA (3 DAYS PER EMP) */
-const MOCK_REPORT_DATA = [
-  { employee: "Rahul Sharma", date: "2026-01-01", status: "Present" },
-  { employee: "Rahul Sharma", date: "2026-01-02", status: "Half Day" },
-  { employee: "Rahul Sharma", date: "2026-01-03", status: "Absent" },
+const MONTH_SHORT = {
+  January: "Jan", February: "Feb", March: "Mar", April: "Apr", May: "May", June: "Jun", July: "Jul", August: "Aug", September: "Sep", October: "Oct", November: "Nov", December: "Dec",
+};
 
-  { employee: "Ankit Verma", date: "2026-01-01", status: "Present" },
-  { employee: "Ankit Verma", date: "2026-01-02", status: "Present" },
-  { employee: "Ankit Verma", date: "2026-01-03", status: "Half Day" },
-
-  { employee: "Priya Singh", date: "2026-01-01", status: "Present" },
-  { employee: "Priya Singh", date: "2026-01-02", status: "Present" },
-  { employee: "Priya Singh", date: "2026-01-03", status: "Present" },
-
-  { employee: "Suresh Kumar", date: "2026-01-01", status: "Absent" },
-  { employee: "Suresh Kumar", date: "2026-01-02", status: "Half Day" },
-  { employee: "Suresh Kumar", date: "2026-01-03", status: "Present" },
-
-  { employee: "Amit Patel", date: "2026-01-01", status: "Half Day" },
-  { employee: "Amit Patel", date: "2026-01-02", status: "Absent" },
-  { employee: "Amit Patel", date: "2026-01-03", status: "Present" },
-
-  { employee: "Neha Iyer", date: "2026-01-01", status: "Present" },
-  { employee: "Neha Iyer", date: "2026-01-02", status: "Half Day" },
-  { employee: "Neha Iyer", date: "2026-01-03", status: "Present" },
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ];
 
 /* Aggregate Monthly */
@@ -82,15 +68,313 @@ const darkMuiTheme = createTheme({
   },
 });
 
+async function fetchMonthlyReport(month, year) {
+  const monthIndex = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ].indexOf(month) + 1;
+
+  const monthKey = `${year}-${String(monthIndex).padStart(2, "0")}`;
+
+  // 1️⃣ fetch employees
+  const empRes = await apiFetch("/api/employees");
+  const employees = await empRes.json();
+
+  const result = [];
+
+  // 2️⃣ fetch attendance per employee
+  for (const emp of employees) {
+    const attRes = await apiFetch(
+      `/api/attendance/${emp.employeeId}?month=${monthKey}`
+    );
+    const days = await attRes.json();
+
+    let present = 0;
+    let halfDay = 0;
+    let absent = 0;
+
+    for (const d of days) {
+      if (d.status === "Present") present++;
+      else if (d.status === "Half Day") halfDay++;
+      else if (d.status === "Absent") absent++;
+    }
+
+    result.push({
+      employeeName: emp.name,
+      present,
+      halfDay,
+      absent,
+      totalPresent: present + halfDay * 0.5,
+    });
+  }
+
+  return result;
+}
+
+
 /* Component */
-export default function Reports() {
+export default function Reports({ onGenerated }) {
   const [rows, setRows] = useState([]);
-  const [month, setMonth] = useState("01");
+  const [month, setMonth] = useState("");
   const [year, setYear] = useState("2026");
 
-  const generateReport = () => {
-    setRows(aggregateMonthly(MOCK_REPORT_DATA));
+  const generateReport = async () => {
+    try {
+      if (!month || !year) return;
+
+      const data = await fetchMonthlyReport(month, year);
+      setRows(data);
+
+      onGenerated?.(month, year);
+    } catch (err) {
+      console.error("Monthly report failed", err);
+    }
   };
+
+  const exportExcel = () => {
+    /* ===== TRANSFORM DATA (ORDER + HEADERS) ===== */
+    const data = tableData.map(r => ({
+      "Employee ID": r.employeeId,
+      "Employee Name": r.employeeName,
+      "Present Days": r.present,
+      "Half Days": r.halfDay,
+      "Absent Days": r.absent,
+      "Total Present Days": r.totalPresent,
+      "Attendance Percentage": Number(r.attendancePct) / 100, // real %
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data, {
+      origin: "A2",
+      skipHeader: true,
+    });
+
+    /* ===== HEADER ROW ===== */
+    const headers = Object.keys(data[0]);
+    headers.forEach((h, i) => {
+      const cell = XLSX.utils.encode_cell({ r: 0, c: i });
+      ws[cell] = {
+        v: h,
+        t: "s",
+        s: {
+          font: { bold: true },
+          alignment: { horizontal: "center", vertical: "center" },
+          border: {
+            top: { style: "thin" },
+            bottom: { style: "thin" },
+            left: { style: "thin" },
+            right: { style: "thin" },
+          },
+        },
+      };
+    });
+
+    /* ===== HEADER ROW HEIGHT (PROFESSIONAL) ===== */
+    ws["!rows"] = [{ hpt: 20 }];
+
+    ws["!autofilter"] = {
+      ref: ws["!ref"],
+    };
+
+    /* ===== COLUMN WIDTHS (PROFESSIONAL) ===== */
+    ws["!cols"] = [
+      { wch: 14 }, // Employee ID
+      { wch: 22 }, // Name
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 18 },
+      { wch: 22 },
+    ];
+
+    /* ===== ALIGNMENT & BORDERS ===== */
+    const range = XLSX.utils.decode_range(ws["!ref"]);
+    for (let R = 1; R <= range.e.r; R++) {
+      for (let C = 0; C <= range.e.c; C++) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        const cell = ws[addr];
+        if (!cell) continue;
+
+        cell.s = {
+          alignment: {
+            horizontal: C === 1 ? "left" : "center",
+            vertical: "center",
+          },
+          border: {
+            top: { style: "thin" },
+            bottom: { style: "thin" },
+            left: { style: "thin" },
+            right: { style: "thin" },
+          },
+        };
+
+        /* Attendance % column formatting */
+        if (C === 6) {
+          cell.z = "0.0%";
+        }
+      }
+    }
+
+    /* ===== FREEZE HEADER ROW ===== */
+    ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+
+    /* ===== WORKBOOK ===== */
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Monthly Attendance");
+
+    const m = MONTH_SHORT[month] || month;
+    XLSX.writeFile(wb, `Monthly Attendance Report ${m}-${year}.xlsx`);
+  };
+
+  const exportPDF = () => {
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "pt",
+      format: "a4",
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const m = MONTH_SHORT[month] || month;
+
+    /* ===== COLORS (STRICT B/W) ===== */
+    const COLORS = {
+      text: "#000000",
+      muted: "#4b5563",
+      border: "#000000",
+      headerBg: "#f2f2f2",
+      rowAlt: "#fafafa",
+    };
+
+    /* ===== HEADER (COMPACT, NO WASTE) ===== */
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(COLORS.text);
+    doc.text("Monthly Attendance Report", 36, 28);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(COLORS.muted);
+    doc.text(`Period: ${m} ${year}`, pageWidth - 36, 28, { align: "right" });
+
+    doc.setDrawColor(COLORS.border);
+    doc.setLineWidth(0.8);
+    doc.line(36, 36, pageWidth - 36, 36);
+
+    /* ===== TABLE (FULL WIDTH) ===== */
+    autoTable(doc, {
+      startY: 44,
+      margin: { left: 20, right: 20 }, // near full-page width
+
+      head: [[
+        "Employee ID",
+        "Employee Name",
+        "Present Days",
+        "Half Days",
+        "Absent Days",
+        "Total Present Days",
+        "Attendance Percentage",
+      ]],
+
+      body: tableData.map(r => [
+        r.employeeId,
+        r.employeeName,
+        r.present,
+        r.halfDay,
+        r.absent,
+        r.totalPresent,
+        `${r.attendancePct}%`,
+      ]),
+
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        textColor: COLORS.text,
+        cellPadding: { top: 4, bottom: 4, left: 6, right: 6 },
+        lineColor: COLORS.border,
+        lineWidth: 0.6,
+        valign: "middle",
+      },
+
+      headStyles: {
+        fillColor: COLORS.headerBg,
+        textColor: COLORS.text,
+        fontStyle: "bold",
+        halign: "center",
+        lineWidth: 0.8,
+      },
+
+      bodyStyles: {
+        fillColor: "#ffffff",
+      },
+
+      alternateRowStyles: {
+        fillColor: COLORS.rowAlt,
+      },
+
+      columnStyles: {
+        0: { halign: "center", cellWidth: 70 },  // Employee ID
+        1: { halign: "left", cellWidth: 160 }, // Name
+        2: { halign: "center" },
+        3: { halign: "center" },
+        4: { halign: "center" },
+        5: { halign: "center" },
+        6: { halign: "center", fontStyle: "bold" },
+      },
+    });
+
+    /* ===== FOOTER (PROFESSIONAL, QUIET) ===== */
+    doc.setFontSize(8);
+    doc.setTextColor(COLORS.muted);
+
+    /* ===== FOOTER (DATE + TIME, DD/MM/YYYY) ===== */
+    const now = new Date();
+
+    // 12-hour time conversion
+    let hours = now.getHours();
+    const minutes = String(now.getMinutes()).padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12 || 12; // convert 0 -> 12
+
+    // format: DD/MM/YYYY hh:mm AM/PM
+    const formattedDateTime = `${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")
+      }/${now.getFullYear()} ${hours}:${minutes} ${ampm}`;
+
+    doc.setFontSize(8);
+    doc.setTextColor(COLORS.muted);
+
+    doc.text(
+      "Generated by Attendance Management System",
+      20,
+      pageHeight - 22
+    );
+
+    doc.text(
+      `Generated on: ${formattedDateTime}`,
+      pageWidth - 20,
+      pageHeight - 22,
+      { align: "right" }
+    );
+
+
+    doc.save(`Monthly Attendance Report ${m}-${year}.pdf`);
+  };
+
+
+
+  function getAttendanceBadge(pct) {
+    const v = Number(pct);
+
+    if (v < 30) {
+      return "bg-red-500/15 text-red-400";
+    }
+
+    if (v < 75) {
+      return "bg-amber-500/15 text-amber-400";
+    }
+
+    return "bg-emerald-500/15 text-emerald-400";
+  }
+
 
   /* ---------- Table Data ---------- */
   const tableData = useMemo(() => {
@@ -151,12 +435,20 @@ export default function Reports() {
       {
         accessorKey: "attendancePct",
         header: "Attendance %",
-        Cell: ({ cell }) => (
-          <span className="px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-medium">
-            {cell.getValue()}%
-          </span>
-        ),
+        Cell: ({ cell }) => {
+          const pct = cell.getValue();
+          const cls = getAttendanceBadge(pct);
+
+          return (
+            <span
+              className={`px-2 py-1 rounded-full text-xs font-medium ${cls}`}
+            >
+              {pct}%
+            </span>
+          );
+        },
       },
+
     ],
     []
   );
@@ -181,9 +473,10 @@ export default function Reports() {
             <select
               value={month}
               onChange={(e) => setMonth(e.target.value)}
-              className="bg-nero-900 border border-nero-700 border-r-0 px-2 py-1 text-sm rounded-l-md"
+              className="appearance-none bg-nero-900 border border-nero-700 border-r-0 px-2 py-1 text-sm rounded-l-md"
             >
-              {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => (
+              <option value="" disabled>Select month</option>
+              {MONTHS.map(m => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
@@ -191,13 +484,15 @@ export default function Reports() {
             <select
               value={year}
               onChange={(e) => setYear(e.target.value)}
-              className="bg-nero-900 border border-nero-700 px-2 py-1 text-sm rounded-r-md"
+              className="appearance-none bg-nero-900 border border-nero-700 border-l-2 px-2 py-1 text-sm rounded-r-md"
             >
-              {["2024", "2025", "2026"].map(y => (
+              <option value="" disabled>Select year</option>
+              {["2024", "2025","2026", "2027", "2028", "2029", "2030"].map(y => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
           </div>
+
 
           {/* KPI */}
           <div className="flex gap-4 text-sm text-nero-400 ml-3">
@@ -244,8 +539,10 @@ export default function Reports() {
 
 
                 muiTableContainerProps={{
+                  className: "minimal-scrollbar",
                   sx: {
                     flex: 1,
+                    overflow: "auto",
                   },
                 }}
 
@@ -314,26 +611,8 @@ export default function Reports() {
 
                 renderTopToolbarCustomActions={({ table }) => (
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => table.exportData("csv")}
-                      className="px-3 py-1.5 rounded-md bg-nero-700 hover:bg-nero-600 text-sm"
-                    >
-                      Export CSV
-                    </button>
-
-                    <button
-                      onClick={() => table.exportData("xlsx")}
-                      className="px-3 py-1.5 rounded-md bg-nero-700 hover:bg-nero-600 text-sm"
-                    >
-                      Export Excel
-                    </button>
-
-                    <button
-                      onClick={() => table.exportData("pdf")}
-                      className="px-3 py-1.5 rounded-md bg-nero-700 hover:bg-nero-600 text-sm"
-                    >
-                      Export PDF
-                    </button>
+                    <button onClick={exportExcel} className="px-3 py-1.5 rounded-md bg-nero-700 hover:bg-nero-600 text-sm">Export Excel</button>
+                    <button onClick={exportPDF} className="px-3 py-1.5 rounded-md bg-nero-700 hover:bg-nero-600 text-sm">Export PDF</button>
                   </div>
                 )}
               />

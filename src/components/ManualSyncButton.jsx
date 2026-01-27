@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { FiRefreshCw } from "react-icons/fi";
+import { toast } from "../utils/ToastHost";
 
 export default function ManualSyncButton() {
     const [syncing, setSyncing] = useState(false);
@@ -49,6 +50,9 @@ export default function ManualSyncButton() {
         }
 
         localStorage.setItem("lastManualSync", res.syncedAt);
+
+        // Success Toast
+        toast("Sync completed successfully", "success");
 
         const autoRes = await window.ipc.getAutoSyncTime();
         const auto = autoRes?.autoSyncAt;

@@ -43,6 +43,10 @@ function App() {
 
   const [attendanceView, setAttendanceView] = useState("dayGridMonth");
   const [attendanceDayStats, setAttendanceDayStats] = useState(null);
+  const [reportPeriod, setReportPeriod] = useState(null);
+
+  const [month, setMonth] = useState("");
+  const [year, setYear] = useState("");
 
   const fetchEmployees = () => {
     apiFetch("/api/employees")
@@ -238,16 +242,16 @@ function App() {
           {activeView === "REPORTS" && (
             <>
               {/* Reports Header */}
-              <div className="h-14 px-4 flex flex-col justify-center bg-nero-800 border-b-2 border-nero-900">
-                <div className="flex items-center gap-2">
-                  <div className="text-lg font-semibold">
-                    Attendance Reports
-                  </div>
+              <div className="h-14 px-4 flex items-center bg-nero-800 border-b-2 border-nero-900">
+                <div className="text-lg font-semibold">
+                  {reportPeriod
+                    ? `Monthly Attendance Report — ${reportPeriod.month} ${reportPeriod.year}`
+                    : "Monthly Attendance Report"}
                 </div>
               </div>
 
               <div className="flex-1 p-3 flex min-h-0">
-                <Reports />
+                <Reports onGenerated={(m, y) => setReportPeriod({ month: m, year: y })} />
               </div>
             </>
           )}

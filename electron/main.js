@@ -146,9 +146,6 @@ ipcMain.handle("manual-sync", async () => {
         return resolve({ ok: false, error: msg });
       }
 
-      // Auto Invalidate Attendance on SUCCESS
-      notifyAttendanceInvalidation({ source: "manual-sync" });
-
       resolve({ ok: true, syncedAt: new Date().toISOString() });
     });
   });
@@ -170,14 +167,10 @@ ipcMain.handle("full-sync", async () => {
         return resolve({ ok: false, error: msg });
       }
 
-      // Auto Invalidate Attendance on SUCCESS
-      notifyAttendanceInvalidation({ source: "full-sync" });
-
       resolve({ ok: true, syncedAt: new Date().toISOString() });
     });
   });
 });
-
 
 /* Auto Sync Time */
 ipcMain.handle("get-auto-sync-time", () => {

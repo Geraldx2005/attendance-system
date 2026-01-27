@@ -53,8 +53,6 @@ export default function SettingsDialog({ open, onClose, theme, toggleTheme, }) {
 
         if (!res?.ok) {
             toast(res?.error || "Manual sync failed", "error");
-        } else {
-            toast("Sync completed, data refreshed", "success");
         }
     };
 
@@ -77,10 +75,7 @@ export default function SettingsDialog({ open, onClose, theme, toggleTheme, }) {
 
         if (!res?.ok) {
             toast(res?.error || "Full sync failed", "error");
-        } else {
-            toast("Full sync completed, data refreshed", "success");
         }
-
     };
 
     /* FILE PICKER */
@@ -151,7 +146,7 @@ export default function SettingsDialog({ open, onClose, theme, toggleTheme, }) {
                     <div>
                         <div className="text-sm font-medium mb-1">Data Sync</div>
                         <div className="flex items-center gap-1 text-xs text-nero-500 mb-3">
-                            <IoWarningOutline />Manually trigger attendance sync from device
+                            Manually trigger attendance sync from device
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -160,7 +155,7 @@ export default function SettingsDialog({ open, onClose, theme, toggleTheme, }) {
                                 disabled={syncing}
                                 className="w-full px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-500 text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                             >
-                                Full Sync
+                                <IoWarningOutline />Full Sync
                             </button>
 
                             <button
