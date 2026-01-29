@@ -164,7 +164,7 @@ export default function LogsConsole({ employee, onDayStats }) {
         onTypeChange={handleTypeChange}
         summaryMode={summaryMode}
         onSummaryClick={handleSummaryToggle}
-        duration={daySummary?.working}
+        duration={daySummary?.daySummary}
       />
 
 

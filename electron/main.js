@@ -1,13 +1,14 @@
 import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import path from "path";
-import { spawn, execFile } from "child_process";
+import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
 import fs from "fs";
+import { nativeTheme } from "electron";
 
 const store = new Store();
 
-/* ================= CONFIG ================= */
+/* CONFIG */
 const SERVICE_EXE = "C:\\essl\\service\\EsslCsvExporterService.exe";
 const HEALTH_STATUS_FILE = "C:\\essl\\health\\status.json";
 const SERVER_PORT = 47832;
@@ -25,7 +26,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mainWindow;
-let backendProcess;
+let backendStarted = false;
 
 /* CSV Path */
 function ensureCSVPath() {
@@ -37,7 +38,7 @@ function ensureCSVPath() {
   return csvPath;
 }
 
-/* 🔥 AUTO SYNC TIME (from status.json) */
+/*  SYNC TIME (from status.json) */
 function getAutoSyncTime() {
   try {
     if (!fs.existsSync(HEALTH_STATUS_FILE)) return null;
@@ -61,49 +62,37 @@ function notifyAttendanceInvalidation(payload) {
   mainWindow.webContents.send("attendance:invalidated", payload);
 }
 
-/* Backend */
-function startBackend() {
-  const backendPath = path.join(process.cwd(), "attendance-backend", "server.js");
-
-  backendProcess = spawn("node", [backendPath], {
-    env: {
-      ...process.env,
-      CSV_PATH: ensureCSVPath(),
-      USER_DATA_PATH: app.getPath("userData"),
-      SERVER_PORT,
-      INTERNAL_TOKEN,
-    },
-    stdio: ["inherit", "inherit", "inherit", "ipc"],
-  });
-
-  backendProcess.on("message", (msg) => {
-    if (msg?.type === "attendance:invalidated") {
-      notifyAttendanceInvalidation(msg);
-    }
-  });
-}
-
-function restartBackend() {
-  if (backendProcess) backendProcess.kill();
-  startBackend();
-}
-
 /* Window */
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    backgroundColor: "#0f0f0f",
+    show: false,
+
+    autoHideMenuBar: true, // hides File/View bar
+    frame: true, // keep window controls
+    titleBarStyle: "default",
+
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       additionalArguments: [`--internal-token=${INTERNAL_TOKEN}`],
     },
   });
 
-  mainWindow.loadURL("http://localhost:5173");
+  if (!app.isPackaged) {
+    mainWindow.loadURL("http://localhost:5173");
+  } else {
+    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+  }
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.maximize(); // open maximized
+    mainWindow.show();
+  });
 }
 
-/* ================= IPC HANDLERS ================= */
-
+/* IPC HANDLERS */
 // CSV picker
 ipcMain.handle("select-csv-path", async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
@@ -115,7 +104,7 @@ ipcMain.handle("select-csv-path", async () => {
   if (canceled || !filePaths.length) return null;
 
   store.set("csvPath", filePaths[0]);
-  restartBackend();
+  process.env.CSV_PATH = filePaths[0]; // notify backend
   return filePaths[0];
 });
 
@@ -126,7 +115,7 @@ ipcMain.handle("set-csv-path", (_, newPath) => {
     return { ok: false, error: "File not found" };
   }
   store.set("csvPath", newPath);
-  restartBackend();
+  process.env.CSV_PATH = newPath; // notify backend
   return { ok: true };
 });
 
@@ -177,15 +166,26 @@ ipcMain.handle("get-auto-sync-time", () => {
   return { autoSyncAt: getAutoSyncTime() };
 });
 
-/* App lifecycle */
-app.whenReady().then(() => {
-  ensureCSVPath();
-  startBackend();
-  createWindow();
-});
+/* APP START */
+app.whenReady().then(async () => {
+  nativeTheme.themeSource = "dark"; // 🌙 forced dark
 
-app.on("before-quit", () => {
-  if (backendProcess) backendProcess.kill();
+  process.env.USER_DATA_PATH = app.getPath("userData");
+  process.env.CSV_PATH = ensureCSVPath();
+
+  if (!backendStarted) {
+    const { startServer } = await import("./backend/server.js");
+    startServer({
+      port: SERVER_PORT,
+      csvPath: process.env.CSV_PATH,
+      userDataPath: app.getPath("userData"),
+      internalToken: INTERNAL_TOKEN,
+      onInvalidate: notifyAttendanceInvalidation,
+    });
+    backendStarted = true;
+  }
+
+  createWindow();
 });
 
 app.on("window-all-closed", () => {
