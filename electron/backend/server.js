@@ -287,17 +287,27 @@ export function startServer({ port, csvPath, userDataPath, internalToken, onInva
 
           const last = getLastLog.get(r.UserID);
 
+          const currTs = new Date(`${r.Date}T${r.Time}`);
+
           // 30s duplicate / bounce guard
           if (last) {
             const lastTs = new Date(`${last.date}T${last.time}`);
-            const currTs = new Date(`${r.Date}T${r.Time}`);
-
             if (Math.abs(currTs - lastTs) < 30 * 1000) {
               continue;
             }
           }
 
-          const nextType = last?.type === "IN" ? "OUT" : "IN";
+          let nextType = "IN";
+
+          if (last) {
+            if (last.date === r.Date) {
+              // SAME DAY → alternate
+              nextType = last.type === "IN" ? "OUT" : "IN";
+            } else {
+              // NEW DAY → ALWAYS IN
+              nextType = "IN";
+            }
+          }
 
           insertLog.run(r.UserID, r.Date, r.Time, nextType);
         }
