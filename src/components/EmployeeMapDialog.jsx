@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../utils/api";
+import { toast } from "../utils/ToastHost";
 
 export default function EmployeeMapDialog({
   open,
@@ -9,10 +10,14 @@ export default function EmployeeMapDialog({
 }) {
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
 
-  /* LOAD CURRENT NAME WHEN OPEN */
+  /* Load current name when dialog opens */
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setError(null);
+      return;
+    }
 
     if (employee) {
       setName(employee.name || employee.employeeId);
@@ -21,7 +26,7 @@ export default function EmployeeMapDialog({
     }
   }, [open, employee]);
 
-  /* ESC TO CLOSE */
+  /* ESC to close */
   useEffect(() => {
     if (!open) return;
 
@@ -36,22 +41,36 @@ export default function EmployeeMapDialog({
     return () => window.removeEventListener("keydown", onEsc);
   }, [open, onClose]);
 
-  /* SAVE NAME */
+  /* Save name */
   const save = async () => {
     if (!employee || !name.trim() || saving) return;
 
+    const trimmedName = name.trim();
+    
+    if (trimmedName.length < 2) {
+      setError("Name must be at least 2 characters");
+      return;
+    }
+
     setSaving(true);
+    setError(null);
 
-    await apiFetch(`/api/employees/${employee.employeeId}`, {
-      method: "POST",
-      body: JSON.stringify({ name: name.trim() }),
-    });
+    try {
+      await apiFetch(`/api/employees/${employee.employeeId}`, {
+        method: "POST",
+        body: JSON.stringify({ name: trimmedName }),
+      });
 
-    setSaving(false);
-
-    // 🔥 pass updated name back to App.jsx
-    onSaved?.(name.trim());
-    onClose();
+      toast("Employee name updated successfully", "success");
+      onSaved?.(trimmedName);
+      onClose();
+    } catch (err) {
+      console.error("Failed to update employee name:", err);
+      setError("Failed to update name. Please try again.");
+      toast("Failed to update employee name", "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!open) return null;
@@ -70,9 +89,9 @@ export default function EmployeeMapDialog({
           <div className="text-lg font-semibold">Employee Mapping</div>
           <button
             onClick={onClose}
-            className="text-nero-500 hover:text-nero-300"
+            className="text-nero-500 hover:text-nero-300 text-xl leading-none"
           >
-            ✕
+            ×
           </button>
         </div>
 
@@ -83,8 +102,8 @@ export default function EmployeeMapDialog({
         ) : (
           <form
             onSubmit={(e) => {
-              e.preventDefault(); // ⛔ prevent page reload
-              save();             // ✅ Enter triggers Save
+              e.preventDefault();
+              save();
             }}
           >
             {/* Employee ID */}
@@ -95,15 +114,7 @@ export default function EmployeeMapDialog({
               <input
                 value={employee.employeeId}
                 disabled
-                className="
-                  w-full
-                  px-3 py-2
-                  bg-nero-800
-                  border border-nero-700
-                  rounded-lg
-                  text-sm
-                  text-nero-400
-                "
+                className="w-full px-3 py-2 bg-nero-800 border border-nero-700 rounded-lg text-sm text-nero-400"
               />
             </div>
 
@@ -114,36 +125,33 @@ export default function EmployeeMapDialog({
               </div>
               <input
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setError(null);
+                }}
                 placeholder="Enter employee name"
                 autoFocus
-                className="
-                  w-full
-                  px-3 py-2
-                  bg-nero-800
-                  border border-nero-700
-                  rounded-lg
-                  text-sm
-                  text-nero-300
-                  outline-none
-                  focus:border-nero-400
-                "
+                maxLength={50}
+                className="w-full px-3 py-2 bg-nero-800 border border-nero-700 rounded-lg text-sm text-nero-300 outline-none focus:border-nero-400"
               />
+              {error && (
+                <div className="text-xs text-red-400 mt-1">{error}</div>
+              )}
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-1.5 rounded-lg text-sm text-nero-400 hover:text-nero-300"
+              >
+                Cancel
+              </button>
               <button
                 type="submit"
-                disabled={saving}
-                className="
-                  px-4 py-1.5
-                  rounded-lg
-                  bg-nero-700
-                  hover:bg-nero-600
-                  text-sm
-                  disabled:opacity-50
-                "
+                disabled={saving || !name.trim()}
+                className="px-4 py-1.5 rounded-lg bg-nero-700 hover:bg-nero-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? "Saving…" : "Save"}
               </button>

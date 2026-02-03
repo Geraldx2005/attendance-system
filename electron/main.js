@@ -4,7 +4,8 @@ import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
 import fs from "fs";
-import net from "net";
+
+let db;
 
 /* ================= SINGLE INSTANCE LOCK ================= */
 const gotTheLock = app.requestSingleInstanceLock();
@@ -26,7 +27,6 @@ const store = new Store();
 /* ================= CONFIG ================= */
 const SERVICE_EXE = "C:\\essl\\service\\EsslCsvExporterService.exe";
 const HEALTH_STATUS_FILE = "C:\\essl\\health\\status.json";
-const SERVER_PORT = 47832;
 const DEFAULT_CSV_PATH = "C:\\essl\\data";
 /* ========================================= */
 
@@ -42,20 +42,6 @@ const __dirname = path.dirname(__filename);
 
 let mainWindow;
 let backendStarted = false;
-
-/* ================= PORT CHECK ================= */
-function isPortInUse(port) {
-  return new Promise((resolve) => {
-    const tester = net
-      .createServer()
-      .once("error", () => resolve(true))
-      .once("listening", () => {
-        tester.close();
-        resolve(false);
-      })
-      .listen(port, "127.0.0.1");
-  });
-}
 
 /* ================= CSV PATH ================= */
 function ensureCSVPath() {
@@ -121,8 +107,35 @@ function createWindow() {
   });
 }
 
-/* ================= IPC HANDLERS ================= */
-// CSV picker
+/* ================= HELPER FUNCTIONS ================= */
+function timeToMinutes(time) {
+  if (!time) return null;
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function isPastDate(dateStr) {
+  const d = new Date(dateStr);
+  const today = new Date();
+
+  d.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+
+  return d < today;
+}
+
+function getDatesInMonth(month) {
+  const [y, m] = month.split("-").map(Number);
+  const days = new Date(y, m, 0).getDate();
+
+  const result = [];
+  for (let d = 1; d <= days; d++) {
+    result.push(`${month}-${String(d).padStart(2, "0")}`);
+  }
+  return result;
+}
+
+/* ================= IPC HANDLERS - SETTINGS ================= */
 ipcMain.handle("select-csv-path", async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     title: "Select Attendance CSV Folder",
@@ -148,15 +161,14 @@ ipcMain.handle("set-csv-path", (_, newPath) => {
   return { ok: true };
 });
 
-/* ================= MANUAL SYNC ================= */
+/* ================= IPC HANDLERS - SYNC ================= */
 ipcMain.handle("manual-sync", async () => {
   return new Promise((resolve) => {
     execFile(SERVICE_EXE, ["manual"], { windowsHide: true }, (error) => {
       if (error) {
         let msg = "Manual sync failed";
         if (error.code === "ENOENT") msg = "Sync service not found";
-        else if (error.message?.toLowerCase().includes("timeout"))
-          msg = "Device not reachable";
+        else if (error.message?.toLowerCase().includes("timeout")) msg = "Device not reachable";
 
         return resolve({ ok: false, error: msg });
       }
@@ -165,15 +177,13 @@ ipcMain.handle("manual-sync", async () => {
   });
 });
 
-/* ================= FULL SYNC ================= */
 ipcMain.handle("full-sync", async () => {
   return new Promise((resolve) => {
     execFile(SERVICE_EXE, ["full"], { windowsHide: true }, (error) => {
       if (error) {
         let msg = "Full sync failed";
         if (error.code === "ENOENT") msg = "Sync service not found";
-        else if (error.message?.toLowerCase().includes("timeout"))
-          msg = "Device not reachable";
+        else if (error.message?.toLowerCase().includes("timeout")) msg = "Device not reachable";
 
         return resolve({ ok: false, error: msg });
       }
@@ -182,41 +192,272 @@ ipcMain.handle("full-sync", async () => {
   });
 });
 
-/* ================= AUTO SYNC TIME ================= */
 ipcMain.handle("get-auto-sync-time", () => {
   return { autoSyncAt: getAutoSyncTime() };
+});
+
+/* ================= IPC HANDLERS - API ================= */
+
+// GET /api/employees
+ipcMain.handle("api:get-employees", () => {
+  try {
+    const employees = db
+      .prepare(
+        `
+      SELECT 
+        id AS employeeId,
+        name
+      FROM employees
+      ORDER BY 
+        CAST(REPLACE(REPLACE(REPLACE(id, 'EMP', ''), 'FT', ''), '-', '') AS INTEGER),
+        id
+    `,
+      )
+      .all();
+
+    return employees;
+  } catch (err) {
+    console.error("api:get-employees error:", err);
+    throw err;
+  }
+});
+
+// GET /api/logs/:employeeId
+ipcMain.handle("api:get-logs", (_, { employeeId, date, from, to }) => {
+  try {
+    let rows;
+
+    if (date) {
+      // Single-day punches
+      rows = db
+        .prepare(
+          `
+        SELECT date, time, source
+        FROM attendance_logs
+        WHERE employee_id = ?
+          AND date = ?
+        ORDER BY time
+      `,
+        )
+        .all(employeeId, date);
+    } else if (from && to) {
+      // Range punches (logs console)
+      rows = db
+        .prepare(
+          `
+        SELECT date, time, source
+        FROM attendance_logs
+        WHERE employee_id = ?
+          AND date BETWEEN ? AND ?
+        ORDER BY date, time
+      `,
+        )
+        .all(employeeId, from, to);
+    } else {
+      // All punches (fallback)
+      rows = db
+        .prepare(
+          `
+        SELECT date, time, source
+        FROM attendance_logs
+        WHERE employee_id = ?
+        ORDER BY date, time
+      `,
+        )
+        .all(employeeId);
+    }
+
+    return rows;
+  } catch (err) {
+    console.error("api:get-logs error:", err);
+    throw err;
+  }
+});
+
+// GET /api/attendance/:employeeId
+ipcMain.handle("api:get-attendance", (_, { employeeId, month }) => {
+  try {
+    let rows;
+
+    if (month) {
+      const from = `${month}-01`;
+      const to = `${month}-31`;
+
+      // Fetch RAW punches only
+      rows = db
+        .prepare(
+          `
+        SELECT date, time
+        FROM attendance_logs
+        WHERE employee_id = ?
+          AND date BETWEEN ? AND ?
+        ORDER BY date, time
+      `,
+        )
+        .all(employeeId, from, to);
+
+      // Group punches by date
+      const byDate = {};
+      for (const r of rows) {
+        if (!byDate[r.date]) byDate[r.date] = [];
+        byDate[r.date].push(r.time);
+      }
+
+      // Generate full month calendar
+      const allDates = getDatesInMonth(month);
+
+      const result = allDates.map((date) => {
+        const punches = byDate[date] || [];
+
+        // No punches
+        if (!punches.length) {
+          return {
+            date,
+            status: isPastDate(date) ? "Absent" : "Pending",
+            firstIn: null,
+            lastOut: null,
+            workedMinutes: 0,
+          };
+        }
+
+        // Derive IN / OUT
+        const firstIn = punches[0];
+        const lastOut = punches[punches.length - 1];
+
+        let workedMinutes = 0;
+        let status = "Absent";
+
+        const inMin = timeToMinutes(firstIn);
+        const outMin = timeToMinutes(lastOut);
+
+        if (inMin !== null && outMin !== null && outMin > inMin) {
+          workedMinutes = outMin - inMin;
+
+          if (workedMinutes >= 8 * 60) status = "Present";
+          else if (workedMinutes >= 5 * 60) status = "Half Day";
+        }
+
+        return {
+          date,
+          status,
+          firstIn,
+          lastOut,
+          workedMinutes,
+        };
+      });
+
+      return result;
+    }
+
+    /* -------- Fallback: all dates (no month filter) -------- */
+
+    rows = db
+      .prepare(
+        `
+      SELECT date, time
+      FROM attendance_logs
+      WHERE employee_id = ?
+      ORDER BY date, time
+    `,
+      )
+      .all(employeeId);
+
+    const byDate = {};
+    for (const r of rows) {
+      if (!byDate[r.date]) byDate[r.date] = [];
+      byDate[r.date].push(r.time);
+    }
+
+    const result = Object.entries(byDate).map(([date, punches]) => {
+      const firstIn = punches[0];
+      const lastOut = punches[punches.length - 1];
+
+      let workedMinutes = 0;
+      let status = "Absent";
+
+      const inMin = timeToMinutes(firstIn);
+      const outMin = timeToMinutes(lastOut);
+
+      if (inMin !== null && outMin !== null && outMin > inMin) {
+        workedMinutes = outMin - inMin;
+
+        if (workedMinutes >= 8 * 60) status = "Present";
+        else if (workedMinutes >= 5 * 60) status = "Half Day";
+      }
+
+      return {
+        date,
+        status,
+        firstIn,
+        lastOut,
+        workedMinutes,
+      };
+    });
+
+    return result;
+  } catch (err) {
+    console.error("api:get-attendance error:", err);
+    throw err;
+  }
+});
+
+// POST /api/employees/:employeeId (update name)
+ipcMain.handle("api:update-employee", (_, { employeeId, name }) => {
+  try {
+    if (!name || !name.trim()) {
+      throw new Error("Name required");
+    }
+
+    db.prepare(
+      `
+    UPDATE employees
+    SET name = ?
+    WHERE id = ?
+  `,
+    ).run(name.trim(), employeeId);
+
+    // Notify UI to refresh lists
+    notifyAttendanceInvalidation({ employeeId });
+
+    return { ok: true };
+  } catch (err) {
+    console.error("api:update-employee error:", err);
+    throw err;
+  }
 });
 
 /* ================= APP START ================= */
 app.whenReady().then(async () => {
   nativeTheme.themeSource = "dark";
 
+  // STEP 1: SET ENV VARS FIRST
   process.env.USER_DATA_PATH = app.getPath("userData");
   process.env.CSV_PATH = ensureCSVPath();
 
-  if (!backendStarted) {
-    const inUse = await isPortInUse(SERVER_PORT);
+  console.log("User Data Path:", process.env.USER_DATA_PATH);
+  console.log("CSV Path:", process.env.CSV_PATH);
 
-    if (!inUse) {
-      const { startServer } = await import("./backend/server.js");
-      startServer({
-        port: SERVER_PORT,
-        csvPath: process.env.CSV_PATH,
-        userDataPath: app.getPath("userData"),
-        internalToken: INTERNAL_TOKEN,
-        onInvalidate: notifyAttendanceInvalidation,
-      });
-    } else {
-      console.log(`Port ${SERVER_PORT} already in use, backend skipped`);
-    }
+  // STEP 2: Import and initialize DB
+  const { initDB } = await import("./backend/db.js");
+  db = initDB();
+
+  // STEP 3: Start ingest service
+  if (!backendStarted) {
+    const { startIngestService } = await import("./backend/ingest.js");
+    startIngestService({
+      csvPath: process.env.CSV_PATH,
+      userDataPath: app.getPath("userData"),
+      onInvalidate: notifyAttendanceInvalidation,
+    });
 
     backendStarted = true;
   }
 
+  // STEP 4: Create window
   createWindow();
 });
 
-/* ================= QUIT ================= */
+// QUIT
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });

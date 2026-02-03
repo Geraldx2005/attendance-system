@@ -27,16 +27,14 @@ function renderAttendanceEvent(info) {
 
   return (
     <div style={{ fontSize: "11px", lineHeight: 1.2 }}>
-      {/* Status + Duration */}
       <div className="flex justify-between font-semibold">
         <span>{info.event.title}</span>
         {duration && <span>{duration}</span>}
       </div>
 
-      {/* IN / OUT */}
       {firstIn && lastOut && (
         <div className="opacity-90 mt-0.5">
-          {to12Hour(firstIn)} — {to12Hour(lastOut)}
+          {to12Hour(firstIn)} – {to12Hour(lastOut)}
         </div>
       )}
     </div>
@@ -45,7 +43,6 @@ function renderAttendanceEvent(info) {
 
 /* Day Timeline Builder */
 function buildDayTimelineEvents(date, logs) {
-  // IMPORTANT: If no logs, inject an invisible anchor event
   if (!logs || logs.length === 0) {
     const anchorStart = new Date(`${date}T08:00:00`);
     const anchorEnd = new Date(anchorStart);
@@ -57,36 +54,50 @@ function buildDayTimelineEvents(date, logs) {
         title: "",
         start: anchorStart,
         end: anchorEnd,
-        display: "background", // invisible but forces timeline render
+        display: "background",
         backgroundColor: "transparent",
       },
     ];
   }
 
-  return logs.map((l, i) => {
-    const start = new Date(`${l.date}T${l.time}`);
+  const sorted = [...logs].sort((a, b) => a.time.localeCompare(b.time));
+  const events = [];
+
+  for (let i = 0; i < sorted.length; i++) {
+    const punch = sorted[i];
+    const isIn = i % 2 === 0;
+    
+    const start = new Date(`${punch.date}T${punch.time}`);
     const end = new Date(start);
     end.setMinutes(end.getMinutes() + 30);
 
-    return {
-      id: `${l.date}-${l.time}-${l.type}`,
-      title:
-        l.type === "IN"
-          ? `Check In · ${to12Hour(l.time)}`
-          : `Check Out · ${to12Hour(l.time)}`,
+    events.push({
+      id: `${punch.date}-${punch.time}-${i}`,
+      title: isIn
+        ? `Check In · ${to12Hour(punch.time)}`
+        : `Check Out · ${to12Hour(punch.time)}`,
       start,
       end,
-      backgroundColor: l.type === "IN" ? "#16a34a" : "#dc2626",
-      borderColor: l.type === "IN" ? "#16a34a" : "#dc2626",
+      backgroundColor: isIn ? "#16a34a" : "#dc2626",
+      borderColor: isIn ? "#16a34a" : "#dc2626",
       textColor: "#fff",
       classNames: ["day-log-event"],
-    };
-  });
+    });
+  }
+
+  return events;
 }
 
 /* Component */
-export default function AttendanceCalendar({ employee, onSummary, onViewChange, onDayStats, }) {
+export default function AttendanceCalendar({ 
+  employee, 
+  onSummary, 
+  onViewChange, 
+  onDayStats, 
+}) {
   const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const [currentView, setCurrentView] = useState("dayGridMonth");
   const [currentDate, setCurrentDate] = useState(null);
@@ -101,25 +112,38 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
 
   /* Initial Load */
   useEffect(() => {
-    if (!employee) return;
+    if (!employee) {
+      setEvents([]);
+      setLoading(false);
+      setError(null);
+      onSummary?.(null);
+      onDayStats?.(null);
+      return;
+    }
 
     monthReadyRef.current = false;
+    setLoading(true);
+    setError(null);
 
     const reqId = ++requestRef.current;
 
-    // ---------------- DAY VIEW ----------------
     if (currentView === "timeGridDay" && currentDate) {
       apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
         .then(res => res.json())
         .then(logs => {
           if (reqId !== requestRef.current) return;
+          
           setEvents(buildDayTimelineEvents(currentDate, logs));
-
           onDayStats?.(calcDayStats(logs));
+          setLoading(false);
         })
-        .catch(console.error);
-
-      // ---------------- MONTH VIEW ----------------
+        .catch(err => {
+          console.error("Failed to load day logs:", err);
+          if (reqId === requestRef.current) {
+            setError("Failed to load attendance data");
+            setLoading(false);
+          }
+        });
     } else {
       apiFetch(`/api/attendance/${employee.employeeId}?month=${currentMonth}`)
         .then(res => res.json())
@@ -128,7 +152,6 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
 
           onDayStats?.(null);
 
-          // ATTENDANCE SUMMARY
           let present = 0;
           let halfDay = 0;
           let absent = 0;
@@ -139,7 +162,6 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
             else if (d.status === "Absent") absent++;
           });
 
-          // 2 half days = 1 present
           const totalPresent = present + halfDay * 0.5;
 
           onSummary?.({
@@ -149,7 +171,6 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
             totalPresent,
           });
 
-          // CALENDAR EVENTS
           setEvents(
             data.map(d => ({
               title: d.status === "Pending" ? "" : d.status,
@@ -167,24 +188,30 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
               borderColor: "transparent",
             }))
           );
+          
           monthReadyRef.current = true;
+          setLoading(false);
           forceRerender(v => v + 1);
         })
-        .catch(console.error);
+        .catch(err => {
+          console.error("Failed to load month attendance:", err);
+          if (reqId === requestRef.current) {
+            setError("Failed to load attendance data");
+            setLoading(false);
+          }
+        });
     }
   }, [employee, currentView, currentDate, currentMonth]);
-
 
   /* IPC Invalidation */
   useEffect(() => {
     if (!window.ipc || !employee) return;
 
     const handler = ({ employeeId }) => {
-      // Ignore other employees
       if (employeeId && employee.employeeId !== employeeId) return;
 
-      // Trigger normal refetch
       const reqId = ++requestRef.current;
+      setLoading(true);
 
       if (currentView === "timeGridDay" && currentDate) {
         apiFetch(`/api/logs/${employee.employeeId}?date=${currentDate}`)
@@ -193,7 +220,9 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
             if (reqId !== requestRef.current) return;
             setEvents(buildDayTimelineEvents(currentDate, logs));
             onDayStats?.(calcDayStats(logs));
-          });
+            setLoading(false);
+          })
+          .catch(() => reqId === requestRef.current && setLoading(false));
       } else {
         apiFetch(`/api/attendance/${employee.employeeId}?month=${currentMonth}`)
           .then(res => res.json())
@@ -201,6 +230,21 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
             if (reqId !== requestRef.current) return;
 
             onDayStats?.(null);
+            
+            let present = 0, halfDay = 0, absent = 0;
+            data.forEach(d => {
+              if (d.status === "Present") present++;
+              else if (d.status === "Half Day") halfDay++;
+              else if (d.status === "Absent") absent++;
+            });
+
+            onSummary?.({
+              present,
+              halfDay,
+              absent,
+              totalPresent: present + halfDay * 0.5,
+            });
+
             setEvents(
               data.map(d => ({
                 title: d.status === "Pending" ? "" : d.status,
@@ -208,19 +252,19 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
                 firstIn: d.firstIn,
                 lastOut: d.lastOut,
                 backgroundColor:
-                  d.status === "Present"
-                    ? "#2e7d32"
-                    : d.status === "Half Day"
-                      ? "#b7791f"
-                      : d.status === "Absent"
-                        ? "#8b1d1d"
-                        : "transparent",
+                  d.status === "Present" ? "#2e7d32"
+                  : d.status === "Half Day" ? "#b7791f"
+                  : d.status === "Absent" ? "#8b1d1d"
+                  : "transparent",
                 borderColor: "transparent",
               }))
             );
+            
             monthReadyRef.current = true;
+            setLoading(false);
             forceRerender(v => v + 1);
-          });
+          })
+          .catch(() => reqId === requestRef.current && setLoading(false));
       }
     };
 
@@ -229,8 +273,37 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
   }, [employee, currentView, currentDate, currentMonth]);
 
   return (
-    <div className="h-full rounded-lg overflow-hidden border border-nero-700 bg-nero-900">
-      <FullCalendar ref={calendarRef}
+    <div className="h-full rounded-lg overflow-hidden border border-nero-700 bg-nero-900 relative">
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="absolute inset-0 bg-nero-900/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-nero-600 border-t-emerald-500 rounded-full animate-spin" />
+            <div className="text-sm text-nero-400">Loading attendance...</div>
+          </div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <div className="absolute inset-0 bg-nero-900 z-40 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-red-400 text-lg mb-2">⚠️ {error}</div>
+            <button
+              onClick={() => {
+                setError(null);
+                forceRerender(v => v + 1);
+              }}
+              className="px-4 py-2 bg-nero-700 hover:bg-nero-600 rounded text-sm"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      <FullCalendar 
+        ref={calendarRef}
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
         initialView="dayGridMonth"
 
@@ -245,7 +318,6 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
         dayMaxEvents={1}
         nowIndicator={true}
 
-        /* Day View Settings */
         allDaySlot={false}
         displayEventTime={false}
         slotMinTime="06:00:00"
@@ -257,14 +329,12 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
             : events
         }
 
-        /* Month-only custom render */
         eventContent={(arg) =>
           arg.view.type === "dayGridMonth"
             ? renderAttendanceEvent(arg)
             : true
         }
 
-        /* View Change Handler */
         datesSet={(arg) => {
           setCurrentView(arg.view.type);
           onViewChange?.(arg.view.type);
@@ -283,7 +353,6 @@ export default function AttendanceCalendar({ employee, onSummary, onViewChange, 
             setCurrentMonth(arg.startStr.slice(0, 7));
           }
         }}
-
       />
     </div>
   );

@@ -12,7 +12,7 @@ export default function SyncProgressDialog({ open, title, message }) {
 
         {/* Progress bar (indeterminate) */}
         <div className="w-full h-2 bg-nero-800 rounded overflow-hidden">
-          <div className="h-full w-1/3 bg-blue-500 animate-progress" />
+          <div className="h-full w-1/3 bg-emerald-500 animate-progress" />
         </div>
 
         <div className="text-[11px] text-nero-500 mt-3">

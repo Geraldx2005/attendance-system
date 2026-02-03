@@ -41,28 +41,36 @@ export default function ManualSyncButton() {
         setSyncing(true);
         setError(null);
 
-        const res = await window.ipc.runManualSync();
-        setSyncing(false);
+        try {
+            // Step 1: Sync from device (runs external service)
+            const res = await window.ipc.runManualSync();
 
-        if (!res?.ok) {
-            setError(res?.error || "Sync failed");
-            return;
+            if (!res?.ok) {
+                setError(res?.error || "Sync failed");
+                toast(res?.error || "Sync failed", "error");
+                return;
+            }
+
+            // Step 2: Success - the CSV watcher in ingest.js will auto-detect changes
+            localStorage.setItem("lastManualSync", res.syncedAt);
+            toast("Sync completed successfully", "success");
+
+            const autoRes = await window.ipc.getAutoSyncTime();
+            const auto = autoRes?.autoSyncAt;
+
+            const latest =
+                auto && new Date(auto) > new Date(res.syncedAt)
+                    ? auto
+                    : res.syncedAt;
+
+            setLastSync(latest);
+        } catch (err) {
+            console.error("Sync error:", err);
+            setError("Sync failed");
+            toast("Sync failed", "error");
+        } finally {
+            setSyncing(false);
         }
-
-        localStorage.setItem("lastManualSync", res.syncedAt);
-
-        // Success Toast
-        toast("Sync completed successfully", "success");
-
-        const autoRes = await window.ipc.getAutoSyncTime();
-        const auto = autoRes?.autoSyncAt;
-
-        const latest =
-            auto && new Date(auto) > new Date(res.syncedAt)
-                ? auto
-                : res.syncedAt;
-
-        setLastSync(latest);
     };
 
     return (
