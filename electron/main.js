@@ -4,6 +4,7 @@ import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import Store from "electron-store";
 import fs from "fs";
+import { timeToMinutes as utilTimeToMinutes } from "./dateTimeUtils.js";
 
 let db;
 
@@ -82,6 +83,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    icon: path.join(__dirname, "../assets/icon.ico"),
     backgroundColor: "#0f0f0f",
     show: false,
 
@@ -109,9 +111,7 @@ function createWindow() {
 
 /* ================= HELPER FUNCTIONS ================= */
 function timeToMinutes(time) {
-  if (!time) return null;
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
+  return utilTimeToMinutes(time);
 }
 
 function isPastDate(dateStr) {

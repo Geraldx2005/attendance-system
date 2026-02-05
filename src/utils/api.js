@@ -1,66 +1,82 @@
-/* API Utility for Electron IPC */
+/**
+ * API Utility for Electron IPC
+ * 
+ * This wrapper provides a fetch-like interface for IPC communication.
+ * IPC handlers already return Promises, so we just need to wrap them
+ * in a Response-like object.
+ */
 
-// Create a fetch-like Response object
-function createResponse(dataPromise, status = 200) {
-  return Promise.resolve({
-    ok: status >= 200 && status < 300,
-    status: status,
-    statusText: status === 200 ? "OK" : "Error",
-    json: () => dataPromise,
-  });
-}
-
-// Create an error response
-function createErrorResponse(error, status = 500) {
-  return Promise.resolve({
-    ok: false,
-    status: status,
-    statusText: error.message || "Internal Server Error",
-    json: () => Promise.reject(error),
-  });
-}
-
-// Main apiFetch function - mimics fetch() but uses Electron IPC
-export function apiFetch(path, options = {}) {
+/**
+ * Main apiFetch function - mimics fetch() but uses Electron IPC
+ * @param {string} path - API path (e.g., "/api/employees")
+ * @param {Object} options - Fetch options (method, body, etc.)
+ * @returns {Promise} - Promise that resolves to a Response-like object
+ */
+export async function apiFetch(path, options = {}) {
   try {
     // Parse URL
     const url = new URL(path, "http://localhost");
     const pathSegments = url.pathname.split("/").filter(Boolean);
     const searchParams = Object.fromEntries(url.searchParams);
 
+    let dataPromise;
+
     // Route to appropriate IPC handler
     if (pathSegments[0] === "api") {
       // GET /api/employees
-      if (pathSegments[1] === "employees" && pathSegments.length === 2) {
-        return createResponse(window.api.getEmployees());
+      if (pathSegments[1] === "employees" && pathSegments.length === 2 && !options.method) {
+        dataPromise = window.api.getEmployees();
       }
-
       // POST /api/employees/:id (update employee name)
-      if (pathSegments[1] === "employees" && pathSegments.length === 3 && options.method === "POST") {
+      else if (pathSegments[1] === "employees" && pathSegments.length === 3 && options.method === "POST") {
         const employeeId = pathSegments[2];
         const body = options.body ? JSON.parse(options.body) : {};
-        return createResponse(window.api.updateEmployeeName(employeeId, body.name));
+        dataPromise = window.api.updateEmployeeName(employeeId, body.name);
       }
-
       // GET /api/logs/:employeeId
-      if (pathSegments[1] === "logs" && pathSegments.length === 3) {
+      else if (pathSegments[1] === "logs" && pathSegments.length === 3) {
         const employeeId = pathSegments[2];
-        return createResponse(window.api.getLogs(employeeId, searchParams));
+        dataPromise = window.api.getLogs(employeeId, searchParams);
       }
-
       // GET /api/attendance/:employeeId
-      if (pathSegments[1] === "attendance" && pathSegments.length === 3) {
+      else if (pathSegments[1] === "attendance" && pathSegments.length === 3) {
         const employeeId = pathSegments[2];
-        const month = url.searchParams.get("month");
-        return createResponse(window.api.getAttendance(employeeId, month));
+        const month = searchParams.month || null;
+        dataPromise = window.api.getAttendance(employeeId, month);
       }
+      else {
+        throw new Error(`Unknown API endpoint: ${path}`);
+      }
+    } else {
+      throw new Error(`Invalid API path: ${path}`);
     }
 
-    // Unknown path
-    return createErrorResponse(new Error(`Unknown API path: ${path}`), 404);
+    // Wait for the IPC call to complete
+    const data = await dataPromise;
+
+    // Return a Response-like object
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => data,
+      text: async () => JSON.stringify(data),
+    };
   } catch (error) {
     console.error("apiFetch error:", error);
-    return createErrorResponse(error, 500);
+    
+    // Return an error Response-like object
+    return {
+      ok: false,
+      status: 500,
+      statusText: error.message || "Internal Server Error",
+      json: async () => {
+        throw error;
+      },
+      text: async () => {
+        throw error;
+      },
+    };
   }
 }
 

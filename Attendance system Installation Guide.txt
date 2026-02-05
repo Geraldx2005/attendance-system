@@ -1,0 +1,45 @@
+Attendance system Installation Guide
+
+Registering DLL
+
+Step 1: 
+Register DLL - PUT DLL IN CORRECT FOLDER 
+C:\Windows\SysWOW64\zkemkeeper.dll
+
+Step 2:
+REGISTER THE DLL - C:\Windows\SysWOW64\regsvr32 C:\Windows\SysWOW64\zkemkeeper.dll
+
+
+Enable Service
+
+Step 1:
+Install .Net framework v4.0.30319
+
+Step 2:
+Register ESSL Service - C:\Windows\Microsoft.NET\Framework\v4.0.30319\InstallUtil.exe EsslCsvExporterService.exe
+
+Step 3:
+Start Service - net start EsslCsvExporter
+
+
+Installing software
+
+Step 1: 
+Get the Installer and install the software (only for windows 10 and 11 (x64) Systems)
+
+
+
+
+Additional tips for service
+
+ENABLE WATCHDOG (NO CODE)
+Windows Service Recovery (RECOMMENDED)
+
+services.msc
+Your service → Properties
+Recovery tab
+
+Set:
+First failure → Restart service
+Second failure → Restart service
+Subsequent → Restart service

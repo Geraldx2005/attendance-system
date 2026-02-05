@@ -267,16 +267,17 @@ export default function Reports({ onGenerated }) {
       // TABLE (FULL WIDTH)
       autoTable(doc, {
         startY: 44,
-        margin: { left: 20, right: 20 },
+        margin: { left: 36, right: 36 },
+        tableWidth: pageWidth,
 
         head: [[
           "Employee ID",
           "Employee Name",
-          "Present Days",
-          "Half Days",
-          "Absent Days",
-          "Total Present Days",
-          "Attendance Percentage",
+          "Present",
+          "Half Day",
+          "Absent",
+          "Total Present",
+          "Attendance %",
         ]],
 
         body: tableData.map(r => [
@@ -313,12 +314,12 @@ export default function Reports({ onGenerated }) {
 
         columnStyles: {
           0: { halign: "center", cellWidth: 60 },
-          1: { halign: "left", cellWidth: 135 },
+          1: { halign: "left", cellWidth: 125 },
           2: { halign: "center", cellWidth: 50 },
           3: { halign: "center", cellWidth: 50 },
           4: { halign: "center", cellWidth: 50 },
-          5: { halign: "center", cellWidth: 70 },
-          6: { halign: "center", cellWidth: 80 },
+          5: { halign: "center", cellWidth: 80 },
+          6: { halign: "center", cellWidth: 108 },
         },
 
         alternateRowStyles: {
